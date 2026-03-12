@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:\\\\Users\\\\Joshu\\\\.cursor\\\\projects\\\\EuropaConvection\\\\EuropaProjectDJ/src\" && python3 -m py_compile *.py 2>&1 | head -50)",
+      "Bash(cd \"C:\\\\Users\\\\Joshu\\\\.cursor\\\\projects\\\\EuropaConvection\\\\EuropaProjectDJ/src\" && grep -n \"from typing import\" *.py)",
+      "Bash(cd \"C:\\\\Users\\\\Joshu\\\\.cursor\\\\projects\\\\EuropaConvection\\\\EuropaProjectDJ/src\" && wc -l *.py | sort -n)",
+      "Bash(cd \"C:\\\\Users\\\\Joshu\\\\.cursor\\\\projects\\\\EuropaConvection\\\\EuropaProjectDJ/src\" && grep -n \"class \" *.py | head -30)",
+      "Bash(cd \"C:\\\\Users\\\\Joshu\\\\.cursor\\\\projects\\\\EuropaConvection\\\\EuropaProjectDJ/src\" && grep -n \"surfacecondition\" *.py)"
+    ]
+  }
+}
