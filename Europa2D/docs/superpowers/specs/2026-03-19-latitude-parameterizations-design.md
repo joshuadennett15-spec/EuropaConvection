@@ -21,22 +21,28 @@ The `cos(89.5 deg)` clamp is ad hoc. It prevents the singularity at the pole but
 ### Proposed
 
 ```python
-T_s(phi) = (T_eq**4 * cos(phi) + T_floor**4)**(1/4)
+T_s(phi) = ((T_eq**4 - T_floor**4) * cos(phi) + T_floor**4)**(1/4)
 ```
 
 **New field:** `T_floor: float = 52.0` (K)
 
+This reparameterization preserves T_s(0) = T_eq exactly, so T_eq retains its original meaning as the equatorial surface temperature. The radiative-only contribution is `T_eq^4 - T_floor^4`, which is the solar term after subtracting the omnipresent floor.
+
 ### Physics basis
 
-This is the exact solution to the surface energy balance:
+The surface energy balance at latitude phi is:
 
 ```
 (1 - A) * S * cos(phi) + q_effective = epsilon * sigma * T_s**4
 ```
 
-where `q_effective` represents all non-solar heat sources at the pole: endogenic flux, obliquity-driven seasonal insolation, thermal inertia, and Jupiter longwave radiation.
+where `q_effective` represents all non-solar heat sources: endogenic flux, obliquity-driven seasonal insolation, thermal inertia, and Jupiter longwave radiation.
 
-Since `T_eq**4 = (1-A)*S / (epsilon*sigma)` and `T_floor**4 = q_effective / (epsilon*sigma)`, dividing through and taking the fourth root gives the proposed formula.
+Defining `T_floor^4 = q_effective / (epsilon * sigma)` and recognizing that `T_eq` is the observed equatorial temperature (which includes both solar and non-solar contributions), we get `(1-A)*S / (epsilon*sigma) = T_eq^4 - T_floor^4`. Substituting:
+
+```
+T_s^4 = (T_eq^4 - T_floor^4) * cos(phi) + T_floor^4
+```
 
 The default `T_floor = 52 K` comes from Ashkenazy (2019), who solved the full seasonal energy balance for Europa including:
 - 3.09 deg obliquity (provides polar summer illumination)
@@ -44,32 +50,26 @@ The default `T_floor = 52 K` comes from Ashkenazy (2019), who solved the full se
 - Jupiter longwave radiation (J_0 = 0.176 W/m^2)
 - Eclipse effects
 
-At zero internal heating, Ashkenazy found T_pole = 51-52 K. With 50 mW/m^2 endogenic flux, T_pole rises to ~63 K. The sensitivity is approximately:
-
-```
-T_floor = 52 + 240 * q_endogenic  (K, with q in W/m^2)
-```
+At zero internal heating, Ashkenazy found T_pole = 51-52 K. With 50 mW/m^2 endogenic flux, T_pole rises to ~63 K.
 
 ### Behavior
 
-- At equator (phi=0): T_s = (T_eq^4 + T_floor^4)^(1/4). With defaults (110, 52 K), this is 111.3 K — a 1.2% uplift over pure T_eq due to the floor term. This is physically correct: even the equator receives endogenic heat.
-- At pole (phi=pi/2): T_s = T_floor (cos term vanishes)
+- At equator (phi=0): T_s = (T_eq^4 - T_floor^4 + T_floor^4)^(1/4) = T_eq exactly. **T_eq retains its original meaning as equatorial surface temperature.**
+- At pole (phi=pi/2): T_s = T_floor (radiative term vanishes)
 - Smooth, monotonically decreasing for T_floor < T_eq, C-infinity
 - No clamp discontinuity
 - `_PHI_FLOOR` and `_COS_FLOOR` constants become unnecessary
-- **Guard:** T_floor must be less than T_eq. If T_floor >= T_eq, the profile is no longer monotonically decreasing, which is non-physical for Europa. Raise ValueError at construction.
+- **Guard:** T_floor must be less than T_eq. If T_floor >= T_eq, the radiative term becomes non-positive, which is non-physical. Raise ValueError at construction.
 
 ### MC sampling
 
-**Primary approach (recommended):** Derive T_floor from the sampled q_ocean_mean using Ashkenazy's sensitivity:
+**T_floor is a fixed independent parameter, not derived from `q_ocean_mean`.** This avoids double-counting: `q_ocean_mean` already enters the model as the basal boundary flux driving shell thickness. Deriving T_floor from the same heat budget would use it twice — once to warm the shell from below and again to warm the surface — artificially flattening latitude contrasts and obscuring attribution.
 
-```python
-T_floor = 52.0 + 240.0 * q_ocean_mean  # K, with q in W/m^2
-```
+**Default:** `T_floor = 52.0` K (Ashkenazy 2019, zero internal heating).
 
-This couples the polar temperature to the ocean heat budget, which is physically correct — a hotter ocean warms the polar surface. With q_ocean_mean in [10, 30] mW/m^2, T_floor falls in [54, 59] K.
+**MC sampling:** `Normal(52, 5)` clipped to `[40, 70]`. This allows modest variation to explore surface-floor sensitivity without coupling it to the basal heat budget.
 
-**Alternative (for sensitivity studies):** Sample independently as `Normal(52, 5)` clipped to `[40, 70]` to explore the effect of decoupling T_floor from the ocean.
+**Sensitivity studies only:** For dedicated experiments testing the effect of endogenic surface heating, T_floor can be varied independently over a wider range. This is separate from the main MC suite.
 
 ### References
 
@@ -147,7 +147,13 @@ mantle_tidal_fraction: float = 0.5
 
 ### Field definitions
 
-**`q_star`** is the Lemasquerier (2023) contrast parameter: |Delta_q| / q_0, where q_0 is the lateral mean and Delta_q is the peak-minus-trough flux difference. Always non-negative; the sign/direction of the contrast is determined by `ocean_pattern`. Range [0, ~0.91]. Values above ~0.91 are non-physical for the Lemasquerier framework; the implementation must validate `q_star < 1.5` for equator_enhanced and `q_star < 3.0` for polar_enhanced to avoid singularities in the amplitude inversion.
+**`q_star`** is the Lemasquerier (2023) contrast parameter: |Delta_q| / q_0, where q_0 is the lateral mean and Delta_q is the peak-minus-trough flux difference. Always non-negative; the sign/direction of the contrast is determined by `ocean_pattern`.
+
+**Validation is two-tiered:**
+- **Science bounds (default, `strict_q_star=True`):** `q_star <= 0.91`. Values above 0.91 exceed the Lemasquerier (2023) physical range (pure tidal mantle heating). Raise ValueError by default.
+- **Math-safe bounds (opt-in, `strict_q_star=False`):** `q_star < 1.5` for equator_enhanced, `q_star < 3.0` for polar_enhanced. These are the singularity boundaries of the amplitude inversion. Only allow these for exploratory/sensitivity work where the user explicitly opts out of science bounds.
+
+**New field:** `strict_q_star: bool = True`
 
 **`mantle_tidal_fraction`** is q_tidal_mean / (q_tidal_mean + q_radiogenic). When `q_star` is None, it auto-derives:
 
@@ -199,6 +205,10 @@ a = 3 * q_star / (3 - 2 * q_star)    [for equator_enhanced]
 | lemasquerier2023_polar | polar_enhanced | 0.455 | 0.5 | 0.536 (= 3×0.455/(3−0.455)) | q_pole/q_eq = 1.54 |
 | lemasquerier2023_polar_strong | polar_enhanced | 0.819 | 0.9 | 1.127 (= 3×0.819/(3−0.819)) | q_pole/q_eq = 2.13 |
 
+### Thesis language note
+
+`q_star = 0.4` for the Soderlund case maps to an endpoint ratio of `q_eq/q_pole = 1.55`, not `1.40`. This is because `q_star` is the contrast relative to the *mean*, while the endpoint ratio compares endpoints to each other. The normalization step amplifies the geometric contrast. In thesis text, describe this as "a zonal-mean ocean heat-flux proxy with q* = 0.4 (Lemasquerier 2023 definition), corresponding to a 1.55:1 equator-to-pole endpoint ratio." Do not write "40% variation" without specifying variation relative to what.
+
 ### MC sampling
 
 Sample `mantle_tidal_fraction` from `Uniform(0.1, 0.9)` or `Beta(2, 2)` to reflect genuine uncertainty about the radiogenic/tidal partition. `q_star` and `a` follow automatically through the derivation chain.
@@ -217,7 +227,7 @@ For equator_enhanced scenarios, `q_star` is sampled directly (no mantle_tidal_fr
 
 | File | Change |
 | --- | --- |
-| `latitude_profile.py` | New fields, updated methods, new `resolved_q_star()` and `_q_star_to_amplitude()` helpers |
+| `latitude_profile.py` | New fields (`T_floor`, `q_star`, `mantle_tidal_fraction`, `strict_q_star`), updated methods, new `resolved_q_star()` and `_q_star_to_amplitude()` helpers |
 | `literature_scenarios.py` | Scenarios use `q_star` instead of `ocean_amplitude` |
 | `latitude_sampler.py` | Sample `T_floor`, `mantle_tidal_fraction`; derive `q_star` |
 | `profile_diagnostics.py` | Add `q_star` and `mantle_tidal_fraction` to diagnostic output |
@@ -240,7 +250,7 @@ For equator_enhanced scenarios, `q_star` is sampled directly (no mantle_tidal_fr
 - `evaluate_at()` return dict keys are unchanged
 
 **Numerical changes (deliberate):**
-- Surface temperature: the energy balance floor replaces the cosine clamp, changing T_s at all latitudes by 1-3 K. At the equator, T_s increases by ~1.2% due to the floor term. At the pole, T_s changes from ~33.6 K (old clamp) to 52 K (Ashkenazy floor).
+- Surface temperature: the energy balance floor replaces the cosine clamp. T_s(0) = T_eq is preserved exactly by the reparameterized formula. At mid-latitudes, T_s changes by 1-3 K. At the pole, T_s changes from ~33.6 K (old clamp) to 52 K (Ashkenazy floor).
 - Tidal strain: mid-latitude values change by up to ~5% in strain (~10% in heating). Endpoint values are unchanged.
 - Ocean heat flux defaults: the default polar_enhanced amplitude changes from `a=1.0` (2:1 ratio) to `a~0.54` (1.5:1 ratio) when no `ocean_amplitude` is explicitly set. This is because the new derivation chain (`mantle_tidal_fraction=0.5` -> `q_star=0.455` -> `a=0.536`) produces a more conservative contrast than the old hardcoded default. **Existing code that explicitly sets `ocean_amplitude=1.0` (including the current `literature_scenarios.py`) is unaffected.** The `literature_scenarios.py` will be updated to use `q_star` with values that produce the desired endpoint ratios.
 
@@ -252,7 +262,7 @@ For equator_enhanced scenarios, `q_star` is sampled directly (no mantle_tidal_fr
 
 ## Validation Criteria
 
-1. `surface_temperature(0.0)` returns `(T_eq**4 + T_floor**4)**(1/4)` — approximately 111.3 K with defaults, NOT exactly T_eq
+1. `surface_temperature(0.0)` returns T_eq exactly (reparameterized formula preserves this)
 2. `surface_temperature(pi/2)` returns T_floor exactly
 3. `surface_temperature` is monotonically decreasing from equator to pole for T_floor < T_eq
 4. `LatitudeProfile(T_floor=T_eq)` raises ValueError (non-physical)
@@ -260,6 +270,7 @@ For equator_enhanced scenarios, `q_star` is sampled directly (no mantle_tidal_fr
 6. `tidal_strain(pi/4)**2 / tidal_strain(0.0)**2` equals `(1 + c*0.5)` exactly
 7. Ocean heat flux normalization still preserves global mean for all patterns
 8. `resolved_q_star()` returns `0.91 * mantle_tidal_fraction` when q_star is None and ocean_amplitude is None
-9. `_q_star_to_amplitude()` raises ValueError for q_star >= 3.0 (polar) or q_star >= 1.5 (equator)
-10. Literature scenarios produce the expected endpoint ratios from the corrected scenario table
-11. 2D single-column validation test still passes (equator column matches 1D within 2%, accounting for the ~1.2% T_s uplift)
+9. With `strict_q_star=True` (default): `_q_star_to_amplitude()` raises ValueError for q_star > 0.91
+10. With `strict_q_star=False`: raises ValueError only at math singularities (q_star >= 3.0 polar, q_star >= 1.5 equator)
+11. Literature scenarios produce the expected endpoint ratios from the corrected scenario table
+12. 2D single-column validation test still passes (equator column matches 1D within 1%)
