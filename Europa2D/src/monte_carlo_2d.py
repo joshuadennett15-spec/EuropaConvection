@@ -58,6 +58,7 @@ def _run_single_2d_sample(
     initial_thickness: float,
     ocean_pattern: str,
     ocean_amplitude: Optional[float],
+    q_star: Optional[float],
     rannacher_steps: int,
     coordinate_system: str,
 ) -> Optional[Dict[str, Any]]:
@@ -67,6 +68,7 @@ def _run_single_2d_sample(
             seed=base_seed + sample_id,
             ocean_pattern=ocean_pattern,
             ocean_amplitude=ocean_amplitude,
+            q_star=q_star,
         )
         shared_params, profile = sampler.sample()
         D_H2O = shared_params['D_H2O']
@@ -153,6 +155,7 @@ class MonteCarloRunner2D:
         initial_thickness: float = 20e3,
         ocean_pattern: OceanPattern = "polar_enhanced",
         ocean_amplitude: Optional[float] = None,
+        q_star: Optional[float] = None,
         T_floor: float = 52.0,
         mantle_tidal_fraction: float = 0.5,
         verbose: bool = True,
@@ -171,6 +174,7 @@ class MonteCarloRunner2D:
         self.initial_thickness = initial_thickness
         self.ocean_pattern = ocean_pattern
         self.ocean_amplitude = ocean_amplitude
+        self.q_star = q_star
         self.T_floor = T_floor
         self.mantle_tidal_fraction = mantle_tidal_fraction
         self.verbose = verbose
@@ -200,6 +204,7 @@ class MonteCarloRunner2D:
             initial_thickness=self.initial_thickness,
             ocean_pattern=self.ocean_pattern,
             ocean_amplitude=self.ocean_amplitude,
+            q_star=self.q_star,
             rannacher_steps=self.rannacher_steps,
             coordinate_system=self.coordinate_system,
         )
@@ -241,8 +246,10 @@ class MonteCarloRunner2D:
         _meta_profile = LatitudeProfile(
             ocean_pattern=self.ocean_pattern,
             ocean_amplitude=self.ocean_amplitude,
+            q_star=self.q_star,
             mantle_tidal_fraction=self.mantle_tidal_fraction,
             T_floor=self.T_floor,
+            strict_q_star=False,
         )
 
         mc_results = MonteCarloResults2D(

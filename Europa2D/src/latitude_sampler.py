@@ -29,10 +29,12 @@ class LatitudeParameterSampler:
         seed: Optional[int] = None,
         ocean_pattern: OceanPattern = "polar_enhanced",
         ocean_amplitude: Optional[float] = None,
+        q_star: Optional[float] = None,
     ):
         self.rng = np.random.default_rng(seed)
         self.ocean_pattern = ocean_pattern
         self.ocean_amplitude = ocean_amplitude
+        self.q_star_override = q_star
 
     def _sample_truncated_normal(self, mean: float, sigma: float,
                                  low: float = -np.inf, high: float = np.inf) -> float:
@@ -110,12 +112,12 @@ class LatitudeParameterSampler:
         # Lemasquerier (2023): q* = 0.91 * mantle_tidal_fraction
         mantle_tidal_fraction = float(self.rng.uniform(0.1, 0.9))
 
-        # q_star sampling depends on ocean pattern (spec: Change 3, MC sampling)
-        # - For polar_enhanced: derived from mantle_tidal_fraction (default path)
-        # - For equator_enhanced: sampled directly, Normal(0.4, 0.1) clipped [0.1, 0.8]
-        # - For uniform: not used (q_star = 0)
-        q_star_explicit = None
-        if self.ocean_pattern == "equator_enhanced":
+        # q_star resolution:
+        # 1. If scenario specifies q_star, use it (no sampling — deterministic contrast)
+        # 2. For equator_enhanced without override: sample Normal(0.4, 0.1) clipped [0.1, 0.8]
+        # 3. For polar_enhanced/uniform without override: leave None (derived from mantle_tidal_fraction)
+        q_star_explicit = self.q_star_override
+        if q_star_explicit is None and self.ocean_pattern == "equator_enhanced":
             q_star_explicit = self.rng.normal(0.4, 0.1)
             q_star_explicit = float(np.clip(q_star_explicit, 0.1, 0.8))
 
