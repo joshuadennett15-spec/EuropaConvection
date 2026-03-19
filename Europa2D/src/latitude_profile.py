@@ -24,10 +24,6 @@ from constants import Planetary
 
 OceanPattern = Literal["uniform", "polar_enhanced", "equator_enhanced"]
 
-# Floor angle to prevent singularity at pole (85 degrees in radians)
-_PHI_FLOOR = np.radians(85.0)
-_COS_FLOOR = np.cos(_PHI_FLOOR)
-
 FloatOrArray = Union[float, npt.NDArray[np.float64]]
 
 
@@ -51,14 +47,32 @@ class LatitudeProfile:
     epsilon_pole: float = 1.2e-5
     q_ocean_mean: float = 0.02
     ocean_pattern: OceanPattern = "polar_enhanced"
+    T_floor: float = 52.0
+
+    def __post_init__(self):
+        if self.T_floor <= 0:
+            raise ValueError(
+                f"T_floor ({self.T_floor} K) must be positive."
+            )
+        if self.T_floor >= self.T_eq:
+            raise ValueError(
+                f"T_floor ({self.T_floor} K) must be less than T_eq ({self.T_eq} K). "
+                "A polar floor >= equatorial temperature is non-physical for Europa."
+            )
 
     def surface_temperature(self, phi: FloatOrArray) -> FloatOrArray:
         """
         Surface temperature as a function of latitude.
 
-        T_s(phi) = T_eq * max(cos(phi), cos(85deg))^(1/4)
+        T_s(phi) = ((T_eq^4 - T_floor^4) * cos(phi) + T_floor^4)^(1/4)
 
-        Based on Ojakangas & Stevenson (1989) radiative equilibrium.
+        Reparameterized energy balance: T_s(0) = T_eq exactly, T_s(pi/2) = T_floor.
+        The T_floor default (52 K) is from Ashkenazy (2019), absorbing obliquity,
+        seasonal insolation, thermal inertia, and Jupiter longwave radiation.
+
+        References:
+            Ojakangas & Stevenson (1989): radiative equilibrium framework
+            Ashkenazy (2019): full seasonal energy balance, T_pole = 51-52 K
 
         Args:
             phi: Geographic latitude in radians (0=equator, pi/2=pole)
@@ -67,8 +81,9 @@ class LatitudeProfile:
             Surface temperature (K)
         """
         phi_arr = np.asarray(phi)
-        cos_phi = np.maximum(np.cos(phi_arr), _COS_FLOOR)
-        result = self.T_eq * cos_phi ** 0.25
+        T_eq4 = self.T_eq ** 4
+        T_fl4 = self.T_floor ** 4
+        result = ((T_eq4 - T_fl4) * np.cos(phi_arr) + T_fl4) ** 0.25
         return float(result) if np.ndim(phi) == 0 else result
 
     def tidal_strain(self, phi: FloatOrArray) -> FloatOrArray:

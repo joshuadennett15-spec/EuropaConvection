@@ -115,3 +115,48 @@ class TestEvaluateAt:
         assert result['T_surf'] == pytest.approx(profile.surface_temperature(phi))
         assert result['epsilon_0'] == pytest.approx(profile.tidal_strain(phi))
         assert result['q_ocean'] == pytest.approx(profile.ocean_heat_flux(phi))
+
+
+class TestSurfaceTemperatureEnergyBalance:
+    """Tests for T_s(phi) = ((T_eq^4 - T_floor^4)*cos(phi) + T_floor^4)^(1/4)."""
+
+    def test_equator_returns_T_eq_exactly(self):
+        """T_s(0) must equal T_eq --- the reparameterized formula preserves this."""
+        profile = LatitudeProfile(T_eq=110.0, T_floor=52.0)
+        assert profile.surface_temperature(0.0) == pytest.approx(110.0, abs=1e-10)
+
+    def test_pole_returns_T_floor(self):
+        """At phi=pi/2, only T_floor^4 survives."""
+        profile = LatitudeProfile(T_eq=110.0, T_floor=52.0)
+        assert profile.surface_temperature(np.pi / 2) == pytest.approx(52.0, abs=1e-10)
+
+    def test_monotonically_decreasing(self):
+        profile = LatitudeProfile(T_eq=110.0, T_floor=52.0)
+        lats = np.linspace(0, np.pi / 2, 50)
+        temps = profile.surface_temperature(lats)
+        assert np.all(np.diff(temps) <= 0)
+
+    def test_T_floor_must_be_less_than_T_eq(self):
+        with pytest.raises(ValueError, match="T_floor.*T_eq"):
+            LatitudeProfile(T_eq=100.0, T_floor=100.0)
+        with pytest.raises(ValueError, match="T_floor.*T_eq"):
+            LatitudeProfile(T_eq=100.0, T_floor=110.0)
+
+    def test_default_T_floor_is_52(self):
+        profile = LatitudeProfile()
+        assert profile.T_floor == 52.0
+
+    def test_pole_is_warmer_than_old_clamp(self):
+        """New floor (52 K) gives a warmer pole than old cos(89.5 deg) clamp (~33.6 K)."""
+        profile = LatitudeProfile(T_eq=110.0, T_floor=52.0)
+        T_pole = profile.surface_temperature(np.pi / 2)
+        assert T_pole > 40.0
+
+    def test_array_input_with_floor(self):
+        profile = LatitudeProfile(T_eq=110.0, T_floor=52.0)
+        lats = np.array([0.0, np.radians(45), np.pi / 2])
+        temps = profile.surface_temperature(lats)
+        assert temps.shape == (3,)
+        assert temps[0] == pytest.approx(110.0, abs=1e-10)
+        assert temps[2] == pytest.approx(52.0, abs=1e-10)
+        assert temps[0] > temps[1] > temps[2]
