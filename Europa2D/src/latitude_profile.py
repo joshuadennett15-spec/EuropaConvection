@@ -134,6 +134,9 @@ class LatitudeProfile:
             Tidal strain amplitude (dimensionless)
         """
         phi_arr = np.asarray(phi)
+        if self.epsilon_eq == 0.0:
+            result = np.zeros_like(phi_arr, dtype=float)
+            return float(result) if np.ndim(phi) == 0 else result
         c = (self.epsilon_pole / self.epsilon_eq) ** 2 - 1.0
         sin2 = np.sin(phi_arr) ** 2
         result = self.epsilon_eq * np.sqrt(1.0 + c * sin2)
