@@ -235,10 +235,12 @@ For equator_enhanced scenarios, `q_star` is sampled directly (no mantle_tidal_fr
 | `test_literature_scenarios.py` | Update expected amplitudes |
 | `test_latitude_sampler.py` | Test new sampled fields |
 
+| `monte_carlo_2d.py` | `MonteCarloResults2D` gains `T_floor`, `q_star`, `mantle_tidal_fraction` fields; `save_results_2d` writes them to NPZ; `MonteCarloRunner2D` passes them through from sampler |
+| `scripts/plot_thickness_profile.py` | `_extract_pattern` reads new fields from NPZ (with backward-compat defaults); summary annotation includes q_star and T_floor |
+
 ### Files NOT modified
 
 - `axial_solver.py` — consumes LatitudeProfile via `evaluate_at()`, no change needed
-- `monte_carlo_2d.py` — consumes sampler output, no change needed
 - `EuropaProjectDJ/*` — no modifications
 
 ### Backward compatibility
