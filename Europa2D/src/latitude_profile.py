@@ -90,9 +90,16 @@ class LatitudeProfile:
         """
         Tidal strain amplitude as a function of latitude.
 
-        eps_0(phi) = eps_eq + (eps_pole - eps_eq) * sin^2(phi)
+        eps_0(phi) = eps_eq * sqrt(1 + c * sin^2(phi))
+        where c = (eps_pole / eps_eq)^2 - 1
 
-        Simplified parameterization inspired by Tobie et al. (2003).
+        This ensures eps_0^2(phi) = eps_eq^2 * (1 + c*sin^2(phi)), which
+        reproduces the Beuthe (2013) zonally-averaged whole-shell eccentricity-tide
+        dissipation pattern: q_tidal ~ 1 + 3*sin^2(phi) when c = 3.
+
+        References:
+            Beuthe (2013): spatial patterns of tidal heating, Icarus 223, 308-329
+            Tobie et al. (2003): ~4:1 pole-to-equator dissipation ratio
 
         Args:
             phi: Geographic latitude in radians (0=equator, pi/2=pole)
@@ -101,8 +108,9 @@ class LatitudeProfile:
             Tidal strain amplitude (dimensionless)
         """
         phi_arr = np.asarray(phi)
+        c = (self.epsilon_pole / self.epsilon_eq) ** 2 - 1.0
         sin2 = np.sin(phi_arr) ** 2
-        result = self.epsilon_eq + (self.epsilon_pole - self.epsilon_eq) * sin2
+        result = self.epsilon_eq * np.sqrt(1.0 + c * sin2)
         return float(result) if np.ndim(phi) == 0 else result
 
     def ocean_heat_flux(self, phi: FloatOrArray) -> FloatOrArray:

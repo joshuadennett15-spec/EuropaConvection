@@ -160,3 +160,43 @@ class TestSurfaceTemperatureEnergyBalance:
         assert temps[0] == pytest.approx(110.0, abs=1e-10)
         assert temps[2] == pytest.approx(52.0, abs=1e-10)
         assert temps[0] > temps[1] > temps[2]
+
+
+class TestTidalStrainBeuthe:
+    """Tests for eps_0(phi) = eps_eq * sqrt(1 + c * sin^2(phi)), c = (eps_pole/eps_eq)^2 - 1."""
+
+    def test_equator_returns_epsilon_eq(self):
+        profile = LatitudeProfile(epsilon_eq=6e-6, epsilon_pole=1.2e-5)
+        assert profile.tidal_strain(0.0) == pytest.approx(6e-6, rel=1e-10)
+
+    def test_pole_returns_epsilon_pole(self):
+        profile = LatitudeProfile(epsilon_eq=6e-6, epsilon_pole=1.2e-5)
+        assert profile.tidal_strain(np.pi / 2) == pytest.approx(1.2e-5, rel=1e-10)
+
+    def test_midlatitude_heating_ratio_matches_beuthe(self):
+        """At 45 deg, eps^2/eps_eq^2 should be 1 + c*0.5, not 2.25 (old linear)."""
+        profile = LatitudeProfile(epsilon_eq=6e-6, epsilon_pole=1.2e-5)
+        c = (1.2e-5 / 6e-6) ** 2 - 1  # = 3.0
+        eps_45 = profile.tidal_strain(np.radians(45))
+        ratio = (eps_45 / 6e-6) ** 2
+        expected = 1.0 + c * 0.5  # = 2.5
+        assert ratio == pytest.approx(expected, rel=1e-10)
+
+    def test_default_c_equals_3_for_beuthe_pattern(self):
+        """With defaults (6e-6, 1.2e-5), c = (2)^2 - 1 = 3, giving the exact
+        Beuthe (2013) whole-shell eccentricity-tide pattern."""
+        profile = LatitudeProfile(epsilon_eq=6e-6, epsilon_pole=1.2e-5)
+        c = (profile.epsilon_pole / profile.epsilon_eq) ** 2 - 1
+        assert c == pytest.approx(3.0, rel=1e-10)
+
+    def test_monotonically_increasing(self):
+        profile = LatitudeProfile(epsilon_eq=6e-6, epsilon_pole=1.2e-5)
+        lats = np.linspace(0, np.pi / 2, 50)
+        strains = profile.tidal_strain(lats)
+        assert np.all(np.diff(strains) >= 0)
+
+    def test_heating_ratio_pole_to_equator_is_4(self):
+        """eps_pole^2 / eps_eq^2 = (1.2e-5)^2 / (6e-6)^2 = 4."""
+        profile = LatitudeProfile(epsilon_eq=6e-6, epsilon_pole=1.2e-5)
+        ratio = (profile.tidal_strain(np.pi / 2) / profile.tidal_strain(0.0)) ** 2
+        assert ratio == pytest.approx(4.0, rel=1e-10)
