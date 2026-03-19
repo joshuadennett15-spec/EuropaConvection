@@ -63,6 +63,11 @@ class LatitudeProfile:
                 f"T_floor ({self.T_floor} K) must be less than T_eq ({self.T_eq} K). "
                 "A polar floor >= equatorial temperature is non-physical for Europa."
             )
+        if not (0.0 <= self.mantle_tidal_fraction <= 1.0):
+            raise ValueError(
+                f"mantle_tidal_fraction ({self.mantle_tidal_fraction}) must be in [0, 1]. "
+                "It represents q_tidal / (q_tidal + q_radiogenic)."
+            )
         if self.q_star is not None:
             if self.strict_q_star and self.q_star > 0.91:
                 raise ValueError(

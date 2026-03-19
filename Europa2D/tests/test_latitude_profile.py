@@ -287,3 +287,18 @@ class TestQStarDerivation:
     def test_default_strict_q_star_is_true(self):
         profile = LatitudeProfile()
         assert profile.strict_q_star is True
+
+    def test_mantle_tidal_fraction_rejects_negative(self):
+        with pytest.raises(ValueError, match="mantle_tidal_fraction"):
+            LatitudeProfile(mantle_tidal_fraction=-0.1)
+
+    def test_mantle_tidal_fraction_rejects_above_one(self):
+        with pytest.raises(ValueError, match="mantle_tidal_fraction"):
+            LatitudeProfile(mantle_tidal_fraction=1.5)
+
+    def test_mantle_tidal_fraction_accepts_boundaries(self):
+        """0.0 and 1.0 are valid (pure radiogenic, pure tidal)."""
+        p0 = LatitudeProfile(mantle_tidal_fraction=0.0)
+        assert p0.resolved_q_star() == pytest.approx(0.0)
+        p1 = LatitudeProfile(mantle_tidal_fraction=1.0)
+        assert p1.resolved_q_star() == pytest.approx(0.91)
