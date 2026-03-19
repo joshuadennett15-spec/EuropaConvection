@@ -6,6 +6,17 @@ runs AxialSolver2D to equilibrium, and collects the H(phi) profile.
 """
 import sys
 import os
+
+# Prevent thread thrashing: force single-threaded BLAS/LAPACK per worker.
+# Without this, N workers × M OpenBLAS threads can saturate the CPU with
+# context-switching overhead, causing apparent deadlocks on Windows.
+# Must be set before importing NumPy.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'EuropaProjectDJ', 'src'))
 
 import numpy as np
@@ -212,7 +223,7 @@ class MonteCarloRunner2D:
         # Sequential or parallel execution
         if self.n_workers > 1:
             with mp.Pool(self.n_workers) as pool:
-                chunksize = max(1, self.n_iterations // (self.n_workers * 4))
+                chunksize = max(10, self.n_iterations // (self.n_workers * 4))
                 results = []
                 for i, result in enumerate(pool.imap_unordered(worker, range(self.n_iterations), chunksize=chunksize)):
                     results.append(result)
