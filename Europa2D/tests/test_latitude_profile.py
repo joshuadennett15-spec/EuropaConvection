@@ -200,3 +200,90 @@ class TestTidalStrainBeuthe:
         profile = LatitudeProfile(epsilon_eq=6e-6, epsilon_pole=1.2e-5)
         ratio = (profile.tidal_strain(np.pi / 2) / profile.tidal_strain(0.0)) ** 2
         assert ratio == pytest.approx(4.0, rel=1e-10)
+
+
+class TestQStarDerivation:
+    """Tests for q_star / mantle_tidal_fraction ocean heat flux parameterization."""
+
+    def test_resolved_q_star_from_mantle_tidal_fraction(self):
+        """When q_star and ocean_amplitude are both None, derive from mantle_tidal_fraction."""
+        profile = LatitudeProfile(mantle_tidal_fraction=0.5, ocean_pattern="polar_enhanced")
+        assert profile.resolved_q_star() == pytest.approx(0.91 * 0.5, rel=1e-10)
+
+    def test_explicit_q_star_overrides_mantle_tidal_fraction(self):
+        profile = LatitudeProfile(q_star=0.4, mantle_tidal_fraction=0.9, ocean_pattern="polar_enhanced")
+        assert profile.resolved_q_star() == pytest.approx(0.4, rel=1e-10)
+
+    def test_ocean_amplitude_overrides_q_star(self):
+        """ocean_amplitude takes highest priority (backward compat)."""
+        profile = LatitudeProfile(
+            ocean_amplitude=1.0, q_star=0.4,
+            ocean_pattern="polar_enhanced", q_ocean_mean=0.02,
+        )
+        assert profile.resolved_ocean_amplitude() == 1.0
+
+    def test_q_star_to_amplitude_polar(self):
+        """a = 3*q_star / (3 - q_star) for polar_enhanced."""
+        profile = LatitudeProfile(q_star=0.455, ocean_pattern="polar_enhanced")
+        a = profile.resolved_ocean_amplitude()
+        expected = 3.0 * 0.455 / (3.0 - 0.455)  # = 0.536
+        assert a == pytest.approx(expected, rel=1e-6)
+
+    def test_q_star_to_amplitude_equator(self):
+        """a = 3*q_star / (3 - 2*q_star) for equator_enhanced."""
+        profile = LatitudeProfile(q_star=0.4, ocean_pattern="equator_enhanced")
+        a = profile.resolved_ocean_amplitude()
+        expected = 3.0 * 0.4 / (3.0 - 2.0 * 0.4)  # = 0.545
+        assert a == pytest.approx(expected, rel=1e-6)
+
+    def test_uniform_pattern_ignores_q_star(self):
+        profile = LatitudeProfile(q_star=0.5, ocean_pattern="uniform")
+        assert profile.resolved_ocean_amplitude() == 0.0
+
+    def test_strict_q_star_rejects_above_091(self):
+        with pytest.raises(ValueError, match="q_star.*0.91"):
+            LatitudeProfile(q_star=0.95, ocean_pattern="polar_enhanced", strict_q_star=True)
+
+    def test_relaxed_q_star_allows_above_091(self):
+        """With strict_q_star=False, values up to the math singularity are OK."""
+        profile = LatitudeProfile(q_star=1.5, ocean_pattern="polar_enhanced", strict_q_star=False)
+        assert profile.resolved_q_star() == pytest.approx(1.5)
+
+    def test_relaxed_q_star_rejects_at_singularity_polar(self):
+        with pytest.raises(ValueError):
+            LatitudeProfile(q_star=3.0, ocean_pattern="polar_enhanced", strict_q_star=False)
+
+    def test_relaxed_q_star_rejects_at_singularity_equator(self):
+        with pytest.raises(ValueError):
+            LatitudeProfile(q_star=1.5, ocean_pattern="equator_enhanced", strict_q_star=False)
+
+    def test_normalization_preserved_with_q_star(self):
+        """Global mean must be preserved regardless of q_star derivation path."""
+        from scipy.integrate import quad
+        cases = [
+            ("polar_enhanced", 0.2),
+            ("polar_enhanced", 0.455),
+            ("polar_enhanced", 0.8),
+            ("equator_enhanced", 0.2),
+            ("equator_enhanced", 0.4),
+            ("equator_enhanced", 0.7),
+        ]
+        for pattern, q_star_val in cases:
+            profile = LatitudeProfile(
+                q_ocean_mean=0.02, ocean_pattern=pattern,
+                q_star=q_star_val, strict_q_star=False,
+            )
+            numerator, _ = quad(
+                lambda phi: profile.ocean_heat_flux(phi) * np.cos(phi),
+                0, np.pi / 2
+            )
+            assert numerator == pytest.approx(0.02, rel=0.01), \
+                f"Failed for {pattern} q_star={q_star_val}"
+
+    def test_default_mantle_tidal_fraction_is_05(self):
+        profile = LatitudeProfile()
+        assert profile.mantle_tidal_fraction == 0.5
+
+    def test_default_strict_q_star_is_true(self):
+        profile = LatitudeProfile()
+        assert profile.strict_q_star is True
