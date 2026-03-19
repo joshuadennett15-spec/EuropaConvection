@@ -64,7 +64,9 @@ magnitudes (e.g., H_rad ~ 1e-12).
 ## Outputs
 
 - `results/thesis_stats/comparison_results.json` — all statistics, CIs, p-values
-- `results/thesis_stats/summary_tables.csv` — AGU-formatted tables
+- `results/thesis_stats/summary_tables.csv` — long-format CSV with columns
+  `[scenario, qoi, statistic, value, ci_low, ci_high]`, one AGU-style table
+  per QoI extractable via groupby
 - `results/thesis_stats/parameter_rankings.csv` — Spearman ranks + Kendall's W
 - `figures/thesis_stats/` — publication-quality PNG (300 DPI) + PDF
 
@@ -78,8 +80,13 @@ Per scenario, per QoI:
 - Percentiles: P5, P16, P25, P50, P75, P84, P95
 - IQR, skewness, excess kurtosis
 - Bootstrap 95% CIs on median and mean (BCa, 10,000 resamples)
-- Conductive fraction: percentage of samples with lid_fraction >= 0.999
-  (reported as a standalone summary statistic per scenario)
+- Conductive fraction: percentage of samples with lid_fraction >= 0.999.
+  This threshold is chosen because the solver assigns lid_fraction = 1.0 to
+  purely conductive solutions (D_conv = 0) and subcritical cases, but
+  numerical noise can produce lid_fraction = 0.9998 for effectively conductive
+  shells. The 0.999 cutoff captures these while excluding genuinely thin
+  convective layers (the thinnest real convective layers have lid_fraction
+  ~ 0.95). Reported as a standalone summary statistic per scenario.
 
 For Ra and Nu, statistics are computed on both raw and log10-transformed values.
 
@@ -87,14 +94,22 @@ Output: one AGU-style summary table per QoI.
 
 ### Block 2: Pairwise Distribution Comparison
 
-For every scenario pair (6 pairs x 6 QoIs = 36 tests):
+Whole-population inferential tests are limited to QoIs whose distributions are
+meaningful without regime conditioning: `thickness_km`, `D_cond_km`, and
+`lid_fraction`. The remaining QoIs (`D_conv_km`, `Ra`, `Nu`) have large point
+masses at the conductive boundary (D_conv=0, Ra sub-critical, Nu=1), so
+whole-population KS/MW tests report trivially significant differences that
+reflect the conductive fraction rather than physical shifts in the convective
+regime. Those QoIs are compared in Block 6 (convective subpopulation only).
+
+For every scenario pair (6 pairs x 3 whole-pop QoIs = 18 tests):
 
 - **Two-sample KS test** — distribution shape difference (D statistic, p-value)
 - **Mann-Whitney U** — location shift with rank-biserial correlation (r_rb) as
   effect size
-- **Cliff's delta** — non-parametric effect size, computed directly from
-  pairwise comparisons: `cliff_d = (sum(x_i > y_j) - sum(x_i < y_j)) / (n1*n2)`.
-  More appropriate than Cohen's d for skewed, bimodal data.
+- **Cliff's delta** — non-parametric effect size, derived from the Mann-Whitney
+  U statistic via `cliff_d = (2*U)/(n1*n2) - 1` (O(n log n) rank-based, not
+  the O(n^2) pairwise formula). More appropriate than Cohen's d for skewed data.
 - **Cohen's d** (pooled SD) — standardized mean difference, retained for
   comparison with parametric literature
 - **Benjamini-Hochberg FDR** correction applied within each QoI (6 pairwise
@@ -110,13 +125,23 @@ Across the 3 equatorial scenarios (1.0x, 1.2x, 1.5x), per QoI:
 
 - **Kruskal-Wallis** — omnibus test for any difference
 - **Jonckheere-Terpstra** — ordered-alternatives test for monotonic trend.
-  One-sided expected directions:
-  - Decreasing: thickness, D_conv, Ra, Nu
+  Applied only to continuous QoIs without heavy boundary masses:
+  `thickness_km`, `D_cond_km`, `lid_fraction`. One-sided expected directions:
+  - Decreasing: thickness
   - Increasing: lid_fraction
   - Two-sided: D_cond (direction depends on competing effects)
 
+  `D_conv_km`, `Ra`, and `Nu` are excluded from JT because their heavy tie
+  structure at the conductive boundary (D_conv=0, Ra sub-critical, Nu=1)
+  violates the continuous-distribution assumption underlying the asymptotic
+  p-value. Those QoIs are tested via KW/MW on the convective subpopulation
+  in Block 6 instead.
+
   JT is not in scipy; implemented as a sum of pairwise Mann-Whitney U
-  statistics across the ordered groups (~20 lines). Included in test suite.
+  statistics across the ordered groups (~25 lines). P-values use the
+  tie-corrected asymptotic normal approximation:
+  `z = (J - E[J]) / sqrt(Var_tied[J])` where the variance correction follows
+  Hollander & Wolfe (1999). Included in test suite.
 
 - **Quantile regression** (statsmodels `QuantReg`) at P5, P50, P95 with
   enhancement factor as predictor. With only 3 distinct x-values, slopes are
@@ -144,7 +169,9 @@ Output: ranking table + concordance summary.
 
 Per scenario, for median and P5/P95 of `thickness_km` and conductive fraction:
 
-- Subsample at n = 500, 1000, 2000, 5000, 10000, 15000
+- Subsample schedule is capped at `min(n_valid)` across all four archives
+  (= 14,997). Schedule: n = 500, 1000, 2000, 5000, 10000, 14997.
+  This ensures identical x-axes across scenarios for a fair comparison.
 - Bootstrap 95% CI at each subsample size
 - Report sample size at which median CI width < 1 km
 
@@ -196,9 +223,12 @@ shell_structure(data_by_scenario) -> dict
 run_all(scenario_paths) -> dict
 save_results(results, output_dir)
 
-# Custom statistical implementations (~35 lines total)
+# Custom statistical implementations (~45 lines total)
 _jonckheere_terpstra(groups, alternative) -> (J_stat, p_value)
+    Tie-corrected asymptotic normal approximation (Hollander & Wolfe 1999).
 _kendall_w(rankings_matrix) -> (W, chi2, p_value)
+_cliffs_delta_from_u(U, n1, n2) -> float
+    Derived from Mann-Whitney U to avoid O(n^2) pairwise computation.
 ```
 
 ### `thesis_figures.py` — Plotting module
@@ -238,7 +268,9 @@ statistics use scipy/numpy. Benjamini-Hochberg FDR correction uses
 - **KS/MW wrappers:** identical arrays -> D=0, p=1; separated normals -> D~1, p~0
 - **FDR correction:** known p-values, assert matches statsmodels multipletests
 - **Jonckheere-Terpstra:** monotonically shifted samples -> p < 0.05;
-  identical samples -> p > 0.05. Also: reversed order -> p > 0.5 (one-sided)
+  identical samples -> p > 0.05; reversed order -> p > 0.5 (one-sided);
+  samples with heavy ties -> verify tie-corrected variance differs from
+  uncorrected
 - **Quantile regression:** y = 2x + noise, assert slope CI contains 2.0
 - **Kendall's W:** identical rankings -> W=1.0; random rankings -> W near 0;
   partially concordant -> 0 < W < 1
