@@ -39,14 +39,16 @@ For Ra and Nu, descriptive statistics are also computed in log10 space
 
 ### Parameters (for ranking)
 
-All 16 `param_*` keys in the archives. Three are zero-variance constants and
-are auto-detected and excluded from the ranking:
+All `param_*` keys in the archives (16 in Global Audited, 17 in equatorial
+archives which additionally include `param_eq_enhancement`). Zero-variance
+constants are auto-detected and excluded from ranking:
 
 | Excluded | Value | Reason |
 |----------|-------|--------|
 | `param_B_k` | 1.0 | Fixed in audited baseline |
 | `param_T_phi` | 150.0 | Fixed in audited baseline |
 | `param_f_salt` | 0.0 | Pure-ice baseline |
+| `param_eq_enhancement` | 1.0/1.2/1.5 | Constant within each archive; routed to metadata |
 
 The remaining 13 parameters are ranked:
 
@@ -54,8 +56,10 @@ The remaining 13 parameters are ranked:
 `param_T_surf`, `param_D_H2O`, `param_mu_ice`, `param_H_rad`,
 `param_f_porosity`, `param_D0v`, `param_D0b`, `param_d_del`
 
-`load_scenario()` auto-detects zero-variance columns (std < 1e-15) and filters
-them with a logged warning.
+`load_scenario()` auto-detects zero-variance columns using a relative threshold
+(`std / max(|mean|, 1e-30) < 1e-6`) and filters them with a logged warning.
+This is more robust than an absolute threshold for parameters stored at small
+magnitudes (e.g., H_rad ~ 1e-12).
 
 ## Outputs
 
@@ -88,9 +92,9 @@ For every scenario pair (6 pairs x 6 QoIs = 36 tests):
 - **Two-sample KS test** — distribution shape difference (D statistic, p-value)
 - **Mann-Whitney U** — location shift with rank-biserial correlation (r_rb) as
   effect size
-- **Cliff's delta** — non-parametric effect size, computed directly from U:
-  `cliff_d = 2*U/(n1*n2) - 1`. More appropriate than Cohen's d for skewed,
-  bimodal data.
+- **Cliff's delta** — non-parametric effect size, computed directly from
+  pairwise comparisons: `cliff_d = (sum(x_i > y_j) - sum(x_i < y_j)) / (n1*n2)`.
+  More appropriate than Cohen's d for skewed, bimodal data.
 - **Cohen's d** (pooled SD) — standardized mean difference, retained for
   comparison with parametric literature
 - **Benjamini-Hochberg FDR** correction applied within each QoI (6 pairwise
@@ -158,7 +162,7 @@ This is the "are 15,000 samples enough?" evidence.
 **Convective-subpopulation analysis:**
 - Filter to samples with lid_fraction < 0.999 (active convective layer)
 - Repeat Block 2 pairwise comparison on thickness, D_cond, D_conv, Ra, Nu
-  for the convective subpopulation only
+  for the convective subpopulation only (BH FDR within each QoI, same as Block 2)
 - Ra and Nu conditional statistics (mean, median, IQR) in both raw and log10
   space, per scenario
 - D_cond vs D_conv Pearson r per scenario
