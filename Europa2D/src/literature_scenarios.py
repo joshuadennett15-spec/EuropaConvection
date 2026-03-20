@@ -98,6 +98,41 @@ SCENARIOS: dict[ScenarioName, LiteratureScenario] = {
 DEFAULT_SCENARIO: ScenarioName = "uniform_transport"
 
 
+@dataclass(frozen=True)
+class SurfacePreset:
+    """Named surface temperature boundary condition."""
+    name: str
+    T_eq: float
+    T_floor: float
+    citation: str
+    description: str
+
+
+SURFACE_PRESETS: dict[str, SurfacePreset] = {
+    "ashkenazy_low_q": SurfacePreset(
+        name="ashkenazy_low_q",
+        T_eq=96.0,
+        T_floor=46.0,
+        citation="Ashkenazy (2019)",
+        description="Annual-mean at Q=0.05 W/m². Default for MC runs.",
+    ),
+    "ashkenazy_high_q": SurfacePreset(
+        name="ashkenazy_high_q",
+        T_eq=96.0,
+        T_floor=53.0,
+        citation="Ashkenazy (2019)",
+        description="Annual-mean at Q=0.2 W/m². Higher internal heating raises polar floor.",
+    ),
+    "legacy_110_52": SurfacePreset(
+        name="legacy_110_52",
+        T_eq=110.0,
+        T_floor=52.0,
+        citation="pre-Ashkenazy estimate",
+        description="Legacy values from early design notes. Use only for sensitivity comparison.",
+    ),
+}
+
+
 def get_scenario(name: ScenarioName) -> LiteratureScenario:
     """Return a named literature-backed forcing preset."""
     return SCENARIOS[name]

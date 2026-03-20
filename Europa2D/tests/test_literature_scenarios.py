@@ -57,3 +57,24 @@ def test_scenarios_use_q_star_not_ocean_amplitude():
     for name in list_scenarios():
         scenario = get_scenario(name)
         assert hasattr(scenario, 'q_star')
+
+
+def test_surface_presets_exist():
+    """Named surface temperature presets for sensitivity analysis."""
+    from literature_scenarios import SURFACE_PRESETS
+
+    assert "ashkenazy_low_q" in SURFACE_PRESETS
+    assert "ashkenazy_high_q" in SURFACE_PRESETS
+    assert "legacy_110_52" in SURFACE_PRESETS
+
+    low = SURFACE_PRESETS["ashkenazy_low_q"]
+    assert low.T_eq == 96.0
+    assert low.T_floor == 46.0
+
+    high = SURFACE_PRESETS["ashkenazy_high_q"]
+    assert high.T_eq == 96.0
+    assert high.T_floor == 53.0
+
+    legacy = SURFACE_PRESETS["legacy_110_52"]
+    assert legacy.T_eq == 110.0
+    assert legacy.T_floor == 52.0
