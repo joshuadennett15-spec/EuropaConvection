@@ -47,7 +47,7 @@ class MonteCarloResults2D:
     runtime_seconds: float
     ocean_pattern: str
     ocean_amplitude: float
-    T_floor: float = 52.0
+    T_floor: float = 46.0  # Ashkenazy (2019) annual-mean polar floor at Q=0.05 W/m²
     q_star: float = 0.0
     mantle_tidal_fraction: float = 0.5
     D_cond_profiles: Optional[npt.NDArray[np.float64]] = None   # (n_valid, n_lat)
@@ -84,14 +84,17 @@ def _run_single_2d_sample(
         shared_params, profile = sampler.sample()
         D_H2O = shared_params['D_H2O']
 
-        # Warm start: conductive estimate scaled for convection
+        # Warm start: conductive estimate with mild convection correction.
+        # Convective shells are only ~1.3-1.5x thicker than the conductive
+        # estimate; the old 8x factor overshot to the 100 km clip for every
+        # sample, wasting hundreds of convergence steps.
         q_mean = profile.q_ocean_mean
         if q_mean > 0:
             k_mean = float(Thermal.conductivity(190.0))
             H_guess = k_mean * 170.0 / q_mean
             if use_convection:
-                H_guess *= 8.0
-            H_guess = np.clip(H_guess, 5e3, 100e3)
+                H_guess *= 1.5
+            H_guess = np.clip(H_guess, 5e3, 80e3)
         else:
             H_guess = initial_thickness
 
@@ -159,15 +162,15 @@ class MonteCarloRunner2D:
         n_workers: Optional[int] = None,
         n_lat: int = 19,
         nx: int = 31,
-        dt: float = 1e12,
+        dt: float = 5e12,
         use_convection: bool = True,
-        max_steps: int = 1500,
+        max_steps: int = 500,
         eq_threshold: float = 1e-12,
         initial_thickness: float = 20e3,
         ocean_pattern: OceanPattern = "polar_enhanced",
         ocean_amplitude: Optional[float] = None,
         q_star: Optional[float] = None,
-        T_floor: float = 52.0,
+        T_floor: float = 46.0,
         mantle_tidal_fraction: float = 0.5,
         verbose: bool = True,
         rannacher_steps: int = 4,
