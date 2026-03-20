@@ -21,12 +21,11 @@ class TestMonteCarloRunner2D:
         assert isinstance(results, MonteCarloResults2D)
         assert results.n_valid > 0
         assert results.H_profiles.shape[1] == 5  # n_lat
-        assert results.ocean_pattern == "polar_enhanced"
-        # Default: mantle_tidal_fraction=0.5 -> q_star=0.455 -> a=0.536
-        expected_a = 3.0 * 0.455 / (3.0 - 0.455)
-        assert results.ocean_amplitude == pytest.approx(expected_a, rel=1e-3)
+        assert results.ocean_pattern == "uniform"
+        # Default: uniform_transport -> ocean_amplitude=0.0, q_star=0.0
+        assert results.ocean_amplitude == pytest.approx(0.0, abs=1e-10)
         assert results.T_floor == pytest.approx(46.0)
-        assert results.q_star == pytest.approx(0.455, rel=1e-3)
+        assert results.q_star == pytest.approx(0.0, abs=1e-10)
         assert results.mantle_tidal_fraction == pytest.approx(0.5)
 
     def test_H_profiles_are_reasonable(self):

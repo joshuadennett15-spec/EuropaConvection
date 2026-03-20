@@ -167,7 +167,7 @@ class MonteCarloRunner2D:
         max_steps: int = 500,
         eq_threshold: float = 1e-12,
         initial_thickness: float = 20e3,
-        ocean_pattern: OceanPattern = "polar_enhanced",
+        ocean_pattern: OceanPattern = "uniform",
         ocean_amplitude: Optional[float] = None,
         q_star: Optional[float] = None,
         T_floor: float = 46.0,

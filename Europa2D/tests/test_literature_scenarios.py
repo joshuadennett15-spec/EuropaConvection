@@ -9,8 +9,12 @@ import pytest
 from literature_scenarios import DEFAULT_SCENARIO, get_scenario, list_scenarios
 
 
-def test_default_scenario_is_conservative_lemasquerier_case():
-    assert DEFAULT_SCENARIO == "lemasquerier2023_polar"
+def test_default_scenario_is_uniform_transport():
+    """Neutral baseline must be uniform_transport (global Howell 2021 params)."""
+    from literature_scenarios import DEFAULT_SCENARIO
+    assert DEFAULT_SCENARIO == "uniform_transport", (
+        f"DEFAULT_SCENARIO={DEFAULT_SCENARIO!r}, expected 'uniform_transport'"
+    )
 
 
 def test_list_scenarios_contains_core_literature_cases():

@@ -42,13 +42,13 @@ class LatitudeProfile:
         q_ocean_mean: Global mean ocean heat flux (W/m^2)
         ocean_pattern: Heat flux distribution pattern
     """
-    T_eq: float = 110.0
+    T_eq: float = 96.0
     epsilon_eq: float = 6.0e-6
     epsilon_pole: float = 1.2e-5
     q_ocean_mean: float = 0.02
-    ocean_pattern: OceanPattern = "polar_enhanced"
+    ocean_pattern: OceanPattern = "uniform"
     ocean_amplitude: Optional[float] = None
-    T_floor: float = 52.0
+    T_floor: float = 46.0
     q_star: Optional[float] = None
     mantle_tidal_fraction: float = 0.5
     strict_q_star: bool = True

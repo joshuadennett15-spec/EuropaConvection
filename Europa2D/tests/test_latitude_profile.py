@@ -142,9 +142,10 @@ class TestSurfaceTemperatureEnergyBalance:
         with pytest.raises(ValueError, match="T_floor.*T_eq"):
             LatitudeProfile(T_eq=100.0, T_floor=110.0)
 
-    def test_default_T_floor_is_52(self):
+    def test_default_T_floor_is_46(self):
+        """Ashkenazy (2019) annual-mean polar temperature at Q=0.05 W/m^2."""
         profile = LatitudeProfile()
-        assert profile.T_floor == 52.0
+        assert profile.T_floor == 46.0
 
     def test_pole_is_warmer_than_old_clamp(self):
         """New floor (52 K) gives a warmer pole than old cos(89.5 deg) clamp (~33.6 K)."""
@@ -300,5 +301,6 @@ class TestQStarDerivation:
         """0.0 and 1.0 are valid (pure radiogenic, pure tidal)."""
         p0 = LatitudeProfile(mantle_tidal_fraction=0.0)
         assert p0.resolved_q_star() == pytest.approx(0.0)
-        p1 = LatitudeProfile(mantle_tidal_fraction=1.0)
+        # polar_enhanced pattern: q_star derived from mantle_tidal_fraction
+        p1 = LatitudeProfile(mantle_tidal_fraction=1.0, ocean_pattern="polar_enhanced")
         assert p1.resolved_q_star() == pytest.approx(0.91)
