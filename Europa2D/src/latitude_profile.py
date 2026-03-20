@@ -52,8 +52,16 @@ class LatitudeProfile:
     q_star: Optional[float] = None
     mantle_tidal_fraction: float = 0.5
     strict_q_star: bool = True
+    tidal_pattern: str = "mantle_core"  # "mantle_core" | "shell_dominated" | "non_monotonic"
+    mid_latitude_amplification: float = 0.3  # used only for non_monotonic pattern
 
     def __post_init__(self):
+        _TIDAL_PATTERNS = {"mantle_core", "shell_dominated", "non_monotonic"}
+        if self.tidal_pattern not in _TIDAL_PATTERNS:
+            raise ValueError(
+                f"Unknown tidal_pattern={self.tidal_pattern!r}, "
+                f"must be one of {_TIDAL_PATTERNS}"
+            )
         if self.T_floor <= 0:
             raise ValueError(
                 f"T_floor ({self.T_floor} K) must be positive."
@@ -133,14 +141,35 @@ class LatitudeProfile:
         Returns:
             Tidal strain amplitude (dimensionless)
         """
-        phi_arr = np.asarray(phi)
-        if self.epsilon_eq == 0.0:
-            result = np.zeros_like(phi_arr, dtype=float)
-            return float(result) if np.ndim(phi) == 0 else result
-        c = (self.epsilon_pole / self.epsilon_eq) ** 2 - 1.0
-        sin2 = np.sin(phi_arr) ** 2
-        result = self.epsilon_eq * np.sqrt(1.0 + c * sin2)
-        return float(result) if np.ndim(phi) == 0 else result
+        phi = np.asarray(phi, dtype=float)
+        if self.tidal_pattern == "mantle_core":
+            # Current: monotonic increase toward poles (Beuthe 2013 whole-shell)
+            if self.epsilon_eq == 0.0:
+                result = np.zeros_like(phi)
+                return float(result) if result.ndim == 0 else result
+            c = (self.epsilon_pole / self.epsilon_eq) ** 2 - 1.0
+            result = self.epsilon_eq * np.sqrt(1.0 + c * np.sin(phi) ** 2)
+            return float(result) if result.ndim == 0 else result
+        elif self.tidal_pattern == "shell_dominated":
+            # Monotonic increase toward equator (Beuthe 2013 thin-shell/membrane)
+            if self.epsilon_pole == 0.0:
+                result = np.zeros_like(phi)
+                return float(result) if result.ndim == 0 else result
+            c = (self.epsilon_eq / self.epsilon_pole) ** 2 - 1.0
+            result = self.epsilon_pole * np.sqrt(1.0 + c * np.cos(phi) ** 2)
+            return float(result) if result.ndim == 0 else result
+        elif self.tidal_pattern == "non_monotonic":
+            # Mantle_core base profile with degree-4 mid-latitude amplification
+            # Base: same as mantle_core (monotonic eq->pole)
+            if self.epsilon_eq == 0.0:
+                result = np.zeros_like(phi)
+                return float(result) if result.ndim == 0 else result
+            c = (self.epsilon_pole / self.epsilon_eq) ** 2 - 1.0
+            base = self.epsilon_eq * np.sqrt(1.0 + c * np.sin(phi) ** 2)
+            # Amplify at mid-latitudes: sin^2(2*phi) peaks at 45 deg, zero at 0 and 90 deg
+            result = base * (1.0 + self.mid_latitude_amplification * np.sin(2 * phi) ** 2)
+            return float(result) if result.ndim == 0 else result
+        raise ValueError(f"Unknown tidal_pattern: {self.tidal_pattern!r}")
 
     def resolved_q_star(self) -> float:
         """

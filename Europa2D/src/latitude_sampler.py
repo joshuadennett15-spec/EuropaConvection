@@ -41,7 +41,7 @@ class LatitudeParameterSampler:
     LATITUDE_STRUCTURE_KEYS = (
         'T_eq', 'T_floor', 'epsilon_eq', 'epsilon_pole',
         'q_ocean_mean', 'ocean_pattern', 'ocean_amplitude',
-        'q_star', 'mantle_tidal_fraction',
+        'q_star', 'mantle_tidal_fraction', 'tidal_pattern',
     )
 
     def __init__(
@@ -50,6 +50,7 @@ class LatitudeParameterSampler:
         ocean_pattern: OceanPattern = "uniform",
         ocean_amplitude: Optional[float] = None,
         q_star: Optional[float] = None,
+        tidal_pattern: str = "mantle_core",
     ):
         seed_sequence = np.random.SeedSequence(seed)
         shared_seq, latitude_seq = seed_sequence.spawn(2)
@@ -61,6 +62,7 @@ class LatitudeParameterSampler:
         self.ocean_pattern = ocean_pattern
         self.ocean_amplitude = ocean_amplitude
         self.q_star_override = q_star
+        self._tidal_pattern = tidal_pattern
 
     @classmethod
     def shared_parameter_names(cls) -> Tuple[str, ...]:
@@ -124,6 +126,9 @@ class LatitudeParameterSampler:
             q_star_explicit = self.rng.normal(0.4, 0.1)
             q_star_explicit = float(np.clip(q_star_explicit, 0.1, 0.8))
 
+        # tidal_pattern is held fixed per MC campaign, not sampled
+        tidal_pattern = self._tidal_pattern  # set in constructor, default "mantle_core"
+
         profile = LatitudeProfile(
             T_eq=T_eq,
             T_floor=T_floor,
@@ -134,6 +139,7 @@ class LatitudeParameterSampler:
             ocean_amplitude=self.ocean_amplitude,
             q_star=q_star_explicit,
             mantle_tidal_fraction=mantle_tidal_fraction,
+            tidal_pattern=tidal_pattern,
         )
 
         shared_params = {

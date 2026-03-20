@@ -304,3 +304,64 @@ class TestQStarDerivation:
         # polar_enhanced pattern: q_star derived from mantle_tidal_fraction
         p1 = LatitudeProfile(mantle_tidal_fraction=1.0, ocean_pattern="polar_enhanced")
         assert p1.resolved_q_star() == pytest.approx(0.91)
+
+
+class TestTidalPatternFamilies:
+    """Tests for tidal_pattern field (Beuthe 2013 pattern families)."""
+
+    def test_tidal_strain_mantle_core_unchanged(self):
+        """mantle_core pattern reproduces current behavior: poles > equator."""
+        profile = LatitudeProfile(
+            epsilon_eq=6e-6, epsilon_pole=1.2e-5,
+            tidal_pattern="mantle_core",
+        )
+        assert profile.tidal_strain(0.0) == pytest.approx(6e-6)
+        assert profile.tidal_strain(np.pi / 2) == pytest.approx(1.2e-5)
+
+    def test_tidal_strain_shell_dominated_equator_peak(self):
+        """shell_dominated pattern: equator > poles."""
+        profile = LatitudeProfile(
+            epsilon_eq=1.2e-5, epsilon_pole=6e-6,
+            tidal_pattern="shell_dominated",
+        )
+        eq = profile.tidal_strain(0.0)
+        pole = profile.tidal_strain(np.pi / 2)
+        assert eq > pole, "Shell-dominated should peak at equator"
+        assert eq == pytest.approx(1.2e-5)
+        assert pole == pytest.approx(6e-6)
+
+    def test_tidal_strain_non_monotonic_mid_latitude_peak(self):
+        """non_monotonic pattern: mid-latitude peak exceeds both endpoints."""
+        profile = LatitudeProfile(
+            epsilon_eq=6e-6, epsilon_pole=1.2e-5,
+            tidal_pattern="non_monotonic",
+            mid_latitude_amplification=0.5,
+        )
+        eq = profile.tidal_strain(0.0)
+        mid = profile.tidal_strain(np.pi / 4)  # 45 degrees
+        pole = profile.tidal_strain(np.pi / 2)
+        # Endpoints match mantle_core profile
+        assert eq == pytest.approx(6e-6)
+        assert pole == pytest.approx(1.2e-5)
+        # Mid-latitude is amplified above the mantle_core base at 45 deg
+        # c = (1.2e-5/6e-6)^2 - 1 = 4 - 1 = 3
+        # base_at_45 = 6e-6 * sqrt(1 + 3 * 0.5) = 6e-6 * sqrt(2.5)
+        base_at_45 = 6e-6 * np.sqrt(1 + 3.0 * 0.5)
+        assert mid == pytest.approx(base_at_45 * 1.5)  # 50% amplification
+        assert mid > eq, "Mid-latitude should exceed equator"
+        assert mid > pole, "Mid-latitude should exceed pole"
+
+    def test_tidal_pattern_invalid_raises(self):
+        """Unknown tidal_pattern should raise ValueError."""
+        with pytest.raises(ValueError, match="tidal_pattern"):
+            LatitudeProfile(tidal_pattern="unknown_pattern")
+
+    def test_tidal_pattern_default_is_mantle_core(self):
+        """Default tidal_pattern must be mantle_core for backward compat."""
+        profile = LatitudeProfile()
+        assert profile.tidal_pattern == "mantle_core"
+
+    def test_mid_latitude_amplification_default_is_03(self):
+        """Default mid_latitude_amplification is 0.3."""
+        profile = LatitudeProfile()
+        assert profile.mid_latitude_amplification == pytest.approx(0.3)

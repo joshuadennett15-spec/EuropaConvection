@@ -1,10 +1,11 @@
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import src
 
-import numpy as np
 import pytest
+
 from latitude_sampler import LatitudeParameterSampler
 from latitude_profile import LatitudeProfile
 
@@ -20,9 +21,11 @@ class TestLatitudeParameterSampler:
     def test_shared_params_present(self):
         sampler = LatitudeParameterSampler(seed=42)
         params, _ = sampler.sample()
-        required = ['d_grain', 'Q_v', 'Q_b', 'mu_ice', 'D0v', 'D0b', 'd_del',
-                     'f_porosity', 'f_salt', 'B_k', 'T_phi', 'H_rad',
-                     'q_basal', 'q_tidal']
+        required = [
+            'd_grain', 'Q_v', 'Q_b', 'mu_ice', 'D0v', 'D0b', 'd_del',
+            'f_porosity', 'f_salt', 'B_k', 'T_phi', 'H_rad',
+            'q_basal', 'q_tidal',
+        ]
         for key in required:
             assert key in params, f"Missing key: {key}"
 
@@ -51,10 +54,10 @@ class TestLatitudeParameterSampler:
         assert params['T_phi'] == 150.0
 
     def test_audited_q_basal_range(self):
-        """q_basal should be uniform in [10, 30] mW/m²."""
+        """q_basal should match the audited shell prior [5, 25] mW/m^2."""
         sampler = LatitudeParameterSampler(seed=0)
         q_vals = [sampler.sample()[0]['q_basal'] for _ in range(200)]
-        assert all(10e-3 <= q <= 30e-3 for q in q_vals)
+        assert all(5e-3 <= q <= 25e-3 for q in q_vals)
 
     def test_audited_H_rad_positive(self):
         """H_rad must be truncated > 0."""
@@ -69,6 +72,24 @@ class TestLatitudeParameterSampler:
         for _ in range(200):
             params, _ = sampler.sample()
             assert 0.0 <= params['f_porosity'] <= 0.10
+
+    def test_audited_d_grain_range(self):
+        """d_grain should match the audited 0.05-3.0 mm bounds."""
+        sampler = LatitudeParameterSampler(seed=0)
+        for _ in range(200):
+            params, _ = sampler.sample()
+            assert 5e-5 <= params['d_grain'] <= 3e-3
+
+    def test_shared_vs_latitude_parameter_partition_is_explicit(self):
+        shared = LatitudeParameterSampler.shared_parameter_names()
+        latitude = LatitudeParameterSampler.latitude_structure_names()
+
+        assert 'd_grain' in shared
+        assert 'D_H2O' in shared
+        assert 'T_eq' not in shared
+        assert 'epsilon_eq' in latitude
+        assert 'q_ocean_mean' in latitude
+        assert set(shared).isdisjoint(latitude)
 
 
 class TestSamplerNewFields:
@@ -86,10 +107,9 @@ class TestSamplerNewFields:
         assert 0.0 < profile.mantle_tidal_fraction < 1.0
 
     def test_T_floor_independent_of_q_ocean(self):
-        """T_floor should NOT be derived from q_ocean_mean."""
+        """T_floor should not be derived from q_ocean_mean."""
         sampler = LatitudeParameterSampler(seed=42)
         _, profile = sampler.sample()
-        # T_floor should be sampled from Normal(52, 5), not 52 + 240*q
         assert profile.T_floor != pytest.approx(52.0 + 240.0 * profile.q_ocean_mean, rel=0.01)
 
     def test_T_floor_less_than_T_eq(self):
@@ -103,13 +123,13 @@ class TestSamplerNewFields:
         """T_floor should be sampled, not a constant default."""
         sampler = LatitudeParameterSampler(seed=0)
         floors = [sampler.sample()[1].T_floor for _ in range(50)]
-        assert len(set(floors)) > 1, "T_floor should vary across samples"
+        assert len(set(floors)) > 1
 
     def test_mantle_tidal_fraction_varies_across_samples(self):
         """mantle_tidal_fraction should be sampled, not a constant default."""
         sampler = LatitudeParameterSampler(seed=0)
         fracs = [sampler.sample()[1].mantle_tidal_fraction for _ in range(50)]
-        assert len(set(fracs)) > 1, "mantle_tidal_fraction should vary across samples"
+        assert len(set(fracs)) > 1
 
     def test_mantle_tidal_fraction_range(self):
         """mantle_tidal_fraction ~ Uniform(0.1, 0.9)."""
@@ -130,3 +150,10 @@ class TestSamplerNewFields:
         sampler = LatitudeParameterSampler(seed=42, ocean_pattern="polar_enhanced")
         _, profile = sampler.sample()
         assert profile.q_star is None
+
+
+def test_sampler_passes_tidal_pattern():
+    """Sampler propagates tidal_pattern to LatitudeProfile."""
+    sampler = LatitudeParameterSampler(seed=42, tidal_pattern="shell_dominated")
+    _, profile = sampler.sample()
+    assert profile.tidal_pattern == "shell_dominated"
