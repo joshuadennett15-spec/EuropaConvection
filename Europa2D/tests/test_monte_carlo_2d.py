@@ -72,3 +72,47 @@ def test_results_default_t_floor_matches_ashkenazy():
     assert results.T_floor == 46.0, (
         f"Default T_floor={results.T_floor}, expected 46.0 K (Ashkenazy 2019)"
     )
+
+
+def test_mc_results_have_d_cond_statistics():
+    """MC results must include D_cond, D_conv, and conv_fraction median and percentile bands."""
+    from monte_carlo_2d import MonteCarloRunner2D
+    import numpy as np
+
+    runner = MonteCarloRunner2D(
+        n_iterations=10,
+        n_lat=5,
+        nx=17,
+        n_workers=1,
+        seed=42,
+        ocean_pattern="uniform",
+    )
+    results = runner.run()
+
+    # D_cond aggregate statistics must exist and have correct shape
+    assert results.D_cond_median is not None, "D_cond_median missing"
+    assert results.D_cond_mean is not None, "D_cond_mean missing"
+    assert results.D_cond_sigma_low is not None, "D_cond_sigma_low missing"
+    assert results.D_cond_sigma_high is not None, "D_cond_sigma_high missing"
+    assert results.D_cond_median.shape == (5,)
+    # D_cond <= H_total at every latitude
+    assert np.all(results.D_cond_median <= results.H_median + 0.01)
+
+    # D_conv aggregate statistics
+    assert results.D_conv_median is not None, "D_conv_median missing"
+    assert results.D_conv_mean is not None, "D_conv_mean missing"
+    assert results.D_conv_median.shape == (5,)
+    # D_cond + D_conv ≈ H_total per sample (within 0.1 km tolerance);
+    # note: median(D_cond) + median(D_conv) ≠ median(H) in general, so we
+    # verify using per-sample sums which must agree with the H profiles.
+    per_sample_sum = results.D_cond_profiles + results.D_conv_profiles
+    assert np.allclose(per_sample_sum, results.H_profiles, atol=0.1), (
+        "D_cond + D_conv must equal H_total per sample (within 0.1 km)"
+    )
+
+    # Convective fraction aggregate statistics
+    assert results.conv_fraction_median is not None, "conv_fraction_median missing"
+    assert results.conv_fraction_mean is not None, "conv_fraction_mean missing"
+    assert results.conv_fraction_median.shape == (5,)
+    assert np.all(results.conv_fraction_median >= 0.0)
+    assert np.all(results.conv_fraction_median <= 1.0)

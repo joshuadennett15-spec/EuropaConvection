@@ -56,6 +56,25 @@ class MonteCarloResults2D:
     Nu_profiles: Optional[npt.NDArray[np.float64]] = None
     lid_fraction_profiles: Optional[npt.NDArray[np.float64]] = None
 
+    # D_cond aggregate statistics (n_lat,) — same shape as H_median
+    D_cond_median: Optional[npt.NDArray[np.float64]] = None
+    D_cond_mean: Optional[npt.NDArray[np.float64]] = None
+    D_cond_sigma_low: Optional[npt.NDArray[np.float64]] = None   # 15.87th percentile
+    D_cond_sigma_high: Optional[npt.NDArray[np.float64]] = None  # 84.13th percentile
+
+    # D_conv aggregate statistics (n_lat,)
+    D_conv_median: Optional[npt.NDArray[np.float64]] = None
+    D_conv_mean: Optional[npt.NDArray[np.float64]] = None
+    D_conv_sigma_low: Optional[npt.NDArray[np.float64]] = None
+    D_conv_sigma_high: Optional[npt.NDArray[np.float64]] = None
+
+    # Convective fraction aggregate statistics (n_lat,)
+    # Fraction of shell thickness occupied by the convective sublayer: D_conv / H_total
+    conv_fraction_median: Optional[npt.NDArray[np.float64]] = None
+    conv_fraction_mean: Optional[npt.NDArray[np.float64]] = None
+    conv_fraction_sigma_low: Optional[npt.NDArray[np.float64]] = None
+    conv_fraction_sigma_high: Optional[npt.NDArray[np.float64]] = None
+
 
 def _run_single_2d_sample(
     sample_id: int,
@@ -257,6 +276,27 @@ class MonteCarloRunner2D:
 
         latitudes_deg = np.linspace(0, 90, self.n_lat)
 
+        # D_cond aggregate statistics
+        D_cond_median = np.median(D_cond, axis=0)
+        D_cond_mean = np.mean(D_cond, axis=0)
+        D_cond_sigma_low = np.percentile(D_cond, 15.87, axis=0)
+        D_cond_sigma_high = np.percentile(D_cond, 84.13, axis=0)
+
+        # D_conv aggregate statistics
+        D_conv_median = np.median(D_conv, axis=0)
+        D_conv_mean = np.mean(D_conv, axis=0)
+        D_conv_sigma_low = np.percentile(D_conv, 15.87, axis=0)
+        D_conv_sigma_high = np.percentile(D_conv, 84.13, axis=0)
+
+        # Convective fraction: D_conv / H_total per sample, then aggregate
+        conv_fraction_stack = np.where(
+            H_profiles > 0, D_conv / H_profiles, 0.0
+        )
+        conv_fraction_median = np.median(conv_fraction_stack, axis=0)
+        conv_fraction_mean = np.mean(conv_fraction_stack, axis=0)
+        conv_fraction_sigma_low = np.percentile(conv_fraction_stack, 15.87, axis=0)
+        conv_fraction_sigma_high = np.percentile(conv_fraction_stack, 84.13, axis=0)
+
         _meta_profile = LatitudeProfile(
             ocean_pattern=self.ocean_pattern,
             ocean_amplitude=self.ocean_amplitude,
@@ -286,6 +326,18 @@ class MonteCarloRunner2D:
             Ra_profiles=Ra,
             Nu_profiles=Nu,
             lid_fraction_profiles=lid_frac,
+            D_cond_median=D_cond_median,
+            D_cond_mean=D_cond_mean,
+            D_cond_sigma_low=D_cond_sigma_low,
+            D_cond_sigma_high=D_cond_sigma_high,
+            D_conv_median=D_conv_median,
+            D_conv_mean=D_conv_mean,
+            D_conv_sigma_low=D_conv_sigma_low,
+            D_conv_sigma_high=D_conv_sigma_high,
+            conv_fraction_median=conv_fraction_median,
+            conv_fraction_mean=conv_fraction_mean,
+            conv_fraction_sigma_low=conv_fraction_sigma_low,
+            conv_fraction_sigma_high=conv_fraction_sigma_high,
         )
 
         if self.verbose:
@@ -316,7 +368,13 @@ def save_results_2d(results: MonteCarloResults2D, filepath: str) -> None:
         'q_star': results.q_star,
         'mantle_tidal_fraction': results.mantle_tidal_fraction,
     }
-    for name in ['D_cond_profiles', 'D_conv_profiles', 'Ra_profiles', 'Nu_profiles', 'lid_fraction_profiles']:
+    optional_arrays = [
+        'D_cond_profiles', 'D_conv_profiles', 'Ra_profiles', 'Nu_profiles', 'lid_fraction_profiles',
+        'D_cond_median', 'D_cond_mean', 'D_cond_sigma_low', 'D_cond_sigma_high',
+        'D_conv_median', 'D_conv_mean', 'D_conv_sigma_low', 'D_conv_sigma_high',
+        'conv_fraction_median', 'conv_fraction_mean', 'conv_fraction_sigma_low', 'conv_fraction_sigma_high',
+    ]
+    for name in optional_arrays:
         val = getattr(results, name)
         if val is not None:
             save_dict[name] = val
