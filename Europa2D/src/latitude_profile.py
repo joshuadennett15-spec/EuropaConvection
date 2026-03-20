@@ -93,12 +93,12 @@ class LatitudeProfile:
         T_s(phi) = ((T_eq^4 - T_floor^4) * cos(phi) + T_floor^4)^(1/4)
 
         Reparameterized energy balance: T_s(0) = T_eq exactly, T_s(pi/2) = T_floor.
-        The T_floor default (52 K) is from Ashkenazy (2019), absorbing obliquity,
+        The T_floor default (46 K) is from Ashkenazy (2019), absorbing obliquity,
         seasonal insolation, thermal inertia, and Jupiter longwave radiation.
 
         References:
             Ojakangas & Stevenson (1989): radiative equilibrium framework
-            Ashkenazy (2019): full seasonal energy balance, T_pole = 51-52 K
+            Ashkenazy (2019): full seasonal energy balance, T_pole = 51-52 K at zero heating
 
         Args:
             phi: Geographic latitude in radians (0=equator, pi/2=pole)
