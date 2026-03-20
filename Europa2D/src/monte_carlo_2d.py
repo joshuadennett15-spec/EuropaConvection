@@ -31,6 +31,7 @@ from constants import Thermal, Planetary
 from latitude_profile import LatitudeProfile, OceanPattern
 from latitude_sampler import LatitudeParameterSampler
 from axial_solver import AxialSolver2D
+from profile_diagnostics import band_mean_samples, LOW_LAT_BAND, HIGH_LAT_BAND
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,14 @@ class MonteCarloResults2D:
     conv_fraction_mean: Optional[npt.NDArray[np.float64]] = None
     conv_fraction_sigma_low: Optional[npt.NDArray[np.float64]] = None
     conv_fraction_sigma_high: Optional[npt.NDArray[np.float64]] = None
+
+    # Latitude-band distributions: (n_valid,) — one value per MC sample
+    # Low band = area-weighted mean over 0-10° latitude
+    # High band = area-weighted mean over 80-90° latitude
+    H_low_band: Optional[npt.NDArray[np.float64]] = None
+    H_high_band: Optional[npt.NDArray[np.float64]] = None
+    D_cond_low_band: Optional[npt.NDArray[np.float64]] = None
+    D_cond_high_band: Optional[npt.NDArray[np.float64]] = None
 
 
 def _run_single_2d_sample(
@@ -288,6 +297,12 @@ class MonteCarloRunner2D:
         D_conv_sigma_low = np.percentile(D_conv, 15.87, axis=0)
         D_conv_sigma_high = np.percentile(D_conv, 84.13, axis=0)
 
+        # Latitude-band mean distributions: (n_valid,)
+        H_low_band = band_mean_samples(latitudes_deg, H_profiles, LOW_LAT_BAND)
+        H_high_band = band_mean_samples(latitudes_deg, H_profiles, HIGH_LAT_BAND)
+        D_cond_low_band = band_mean_samples(latitudes_deg, D_cond, LOW_LAT_BAND)
+        D_cond_high_band = band_mean_samples(latitudes_deg, D_cond, HIGH_LAT_BAND)
+
         # Convective fraction: D_conv / H_total per sample, then aggregate
         conv_fraction_stack = np.where(
             H_profiles > 0, D_conv / H_profiles, 0.0
@@ -338,6 +353,10 @@ class MonteCarloRunner2D:
             conv_fraction_mean=conv_fraction_mean,
             conv_fraction_sigma_low=conv_fraction_sigma_low,
             conv_fraction_sigma_high=conv_fraction_sigma_high,
+            H_low_band=H_low_band,
+            H_high_band=H_high_band,
+            D_cond_low_band=D_cond_low_band,
+            D_cond_high_band=D_cond_high_band,
         )
 
         if self.verbose:
@@ -373,6 +392,7 @@ def save_results_2d(results: MonteCarloResults2D, filepath: str) -> None:
         'D_cond_median', 'D_cond_mean', 'D_cond_sigma_low', 'D_cond_sigma_high',
         'D_conv_median', 'D_conv_mean', 'D_conv_sigma_low', 'D_conv_sigma_high',
         'conv_fraction_median', 'conv_fraction_mean', 'conv_fraction_sigma_low', 'conv_fraction_sigma_high',
+        'H_low_band', 'H_high_band', 'D_cond_low_band', 'D_cond_high_band',
     ]
     for name in optional_arrays:
         val = getattr(results, name)

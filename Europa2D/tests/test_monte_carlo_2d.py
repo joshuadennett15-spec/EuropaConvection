@@ -116,3 +116,30 @@ def test_mc_results_have_d_cond_statistics():
     assert results.conv_fraction_median.shape == (5,)
     assert np.all(results.conv_fraction_median >= 0.0)
     assert np.all(results.conv_fraction_median <= 1.0)
+
+
+def test_mc_results_have_band_means():
+    """MC results must include area-weighted band-mean distributions."""
+    from monte_carlo_2d import MonteCarloRunner2D
+    import numpy as np
+
+    runner = MonteCarloRunner2D(
+        n_iterations=10,
+        n_lat=19,
+        nx=17,
+        n_workers=1,
+        seed=42,
+        ocean_pattern="uniform",
+    )
+    results = runner.run()
+
+    # Band-mean distributions: one value per valid MC sample
+    assert results.H_low_band is not None, "H_low_band missing"
+    assert results.H_high_band is not None, "H_high_band missing"
+    assert results.D_cond_low_band is not None, "D_cond_low_band missing"
+    assert results.D_cond_high_band is not None, "D_cond_high_band missing"
+    assert results.H_low_band.shape == (results.n_valid,)
+    assert results.H_high_band.shape == (results.n_valid,)
+    # Low-latitude band mean should be finite and positive
+    assert np.all(np.isfinite(results.H_low_band))
+    assert np.all(results.H_low_band > 0)
