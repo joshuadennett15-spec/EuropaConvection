@@ -118,7 +118,7 @@ class TestEvaluateAt:
 
 
 class TestSurfaceTemperatureEnergyBalance:
-    """Tests for T_s(phi) = ((T_eq^4 - T_floor^4)*cos(phi) + T_floor^4)^(1/4)."""
+    """Tests for T_s(phi) = ((T_eq^4 - T_floor^4)*cos^p(phi) + T_floor^4)^(1/4)."""
 
     def test_equator_returns_T_eq_exactly(self):
         """T_s(0) must equal T_eq --- the reparameterized formula preserves this."""
@@ -161,6 +161,42 @@ class TestSurfaceTemperatureEnergyBalance:
         assert temps[0] == pytest.approx(110.0, abs=1e-10)
         assert temps[2] == pytest.approx(52.0, abs=1e-10)
         assert temps[0] > temps[1] > temps[2]
+
+    def test_default_exponent_is_calibrated(self):
+        """Default exponent p=1.25 is calibrated to Ashkenazy (2019)."""
+        profile = LatitudeProfile()
+        assert profile.surface_temp_exponent == 1.25
+
+    def test_exponent_softens_polar_ramp(self):
+        """p=1.25 gives a cooler mid-high-latitude T_s than p=1.0.
+
+        At 75 deg, Ashkenazy (2019) predicts ~67 K. The p=1.0 formula
+        gives ~70.9 K (overestimates by ~4 K). The p=1.25 formula should
+        be closer to 67 K.
+        """
+        profile_p1 = LatitudeProfile(T_eq=96.0, T_floor=46.0, surface_temp_exponent=1.0)
+        profile_cal = LatitudeProfile(T_eq=96.0, T_floor=46.0, surface_temp_exponent=1.25)
+        T_75_p1 = profile_p1.surface_temperature(np.radians(75))
+        T_75_cal = profile_cal.surface_temperature(np.radians(75))
+        # Calibrated profile should be cooler at 75 deg
+        assert T_75_cal < T_75_p1
+        # And closer to the Ashkenazy value (~67 K)
+        assert abs(T_75_cal - 67.0) < abs(T_75_p1 - 67.0)
+
+    def test_exponent_preserves_endpoints(self):
+        """cos^p(0)=1 and cos^p(pi/2)~0 for any p>0, so endpoints are exact to float precision."""
+        for p in [0.5, 1.0, 1.25, 1.5, 2.0]:
+            profile = LatitudeProfile(T_eq=96.0, T_floor=46.0, surface_temp_exponent=p)
+            assert profile.surface_temperature(0.0) == pytest.approx(96.0, abs=1e-10)
+            # cos(pi/2) is ~6e-17 in IEEE 754, so cos^p amplifies slightly for p<1
+            assert profile.surface_temperature(np.pi / 2) == pytest.approx(46.0, abs=1e-4)
+
+    def test_p1_reproduces_classic_formula(self):
+        """p=1.0 gives the Ojakangas & Stevenson (1989) formula exactly."""
+        profile = LatitudeProfile(T_eq=96.0, T_floor=46.0, surface_temp_exponent=1.0)
+        phi = np.radians(45)
+        expected = ((96.0**4 - 46.0**4) * np.cos(phi) + 46.0**4) ** 0.25
+        assert profile.surface_temperature(phi) == pytest.approx(expected, abs=1e-10)
 
 
 class TestTidalStrainBeuthe:
