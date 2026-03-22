@@ -44,6 +44,11 @@ class LatitudeParameterSampler:
         'q_star', 'mantle_tidal_fraction', 'tidal_pattern',
     )
 
+    # Small 2D-only uplift on the inherited tidal/ocean component. This keeps
+    # the 1D audited prior unchanged while nudging the 2D benchmark away from
+    # the most strongly lid-dominated corner of parameter space.
+    TIDAL_FLUX_SCALE = 1.20
+
     def __init__(
         self,
         seed: Optional[int] = None,
@@ -51,6 +56,8 @@ class LatitudeParameterSampler:
         ocean_amplitude: Optional[float] = None,
         q_star: Optional[float] = None,
         tidal_pattern: str = "mantle_core",
+        q_tidal_scale: float = TIDAL_FLUX_SCALE,
+        grain_latitude_mode: str = "global",
     ):
         seed_sequence = np.random.SeedSequence(seed)
         shared_seq, latitude_seq = seed_sequence.spawn(2)
@@ -63,6 +70,10 @@ class LatitudeParameterSampler:
         self.ocean_amplitude = ocean_amplitude
         self.q_star_override = q_star
         self._tidal_pattern = tidal_pattern
+        if q_tidal_scale <= 0.0:
+            raise ValueError("q_tidal_scale must be positive.")
+        self.q_tidal_scale = float(q_tidal_scale)
+        self._grain_latitude_mode = grain_latitude_mode
 
     @classmethod
     def shared_parameter_names(cls) -> Tuple[str, ...]:
@@ -89,12 +100,13 @@ class LatitudeParameterSampler:
         # keep an equatorial anchor rather than reusing the audited global 1D
         # T_surf value, because T_surf is an explicitly latitude-varying field
         # in the 2D model.
-        T_eq = self.rng.normal(96.0, 5.0)
+        T_eq = self.rng.normal(110.0, 5.0)
         T_eq = np.clip(T_eq, 80.0, 115.0)
 
-        # Ashkenazy (2019): annual-mean polar floor 46 K at Q=0.05 W/m^2,
-        # rising to ~53 K at Q=0.2 W/m^2.  Sample independently of
-        # q_ocean_mean to avoid double-counting polar thermal effects.
+        # Keep the 2D equator aligned with the 1D equatorial-proxy workflow
+        # (110 +/- 5 K), but retain a colder polar floor as an explicit
+        # latitude-dependent boundary condition.  Sample T_floor independently
+        # of q_ocean_mean to avoid double-counting polar thermal effects.
         T_floor = self.rng.normal(46.0, 4.0)
         T_floor = float(np.clip(T_floor, 38.0, 58.0))
         T_floor = min(T_floor, T_eq - 1.0)
@@ -108,11 +120,14 @@ class LatitudeParameterSampler:
 
         # Mean basal heat flux inherits the audited 1D shell prior. In the
         # current 2D proxy that global-mean basal flux is redistributed by the
-        # latitude-only ocean pattern.
+        # latitude-only ocean pattern. Apply only a modest 2D-only uplift to
+        # the tidal/ocean component so the 1D audited prior itself is not
+        # rewritten.
         R_rock = Planetary.RADIUS - D_H2O
         M_rock = (4.0 / 3.0) * np.pi * (R_rock ** 3) * 3500.0
         q_radiogenic = (H_rad * M_rock) / Planetary.AREA
-        q_tidal_global = audited_params['P_tidal'] / Planetary.AREA
+        q_tidal_inherited = audited_params['P_tidal'] / Planetary.AREA
+        q_tidal_global = self.q_tidal_scale * q_tidal_inherited
         q_basal_global = q_radiogenic + q_tidal_global
         q_ocean_mean = q_basal_global
 
@@ -126,8 +141,9 @@ class LatitudeParameterSampler:
             q_star_explicit = self.rng.normal(0.4, 0.1)
             q_star_explicit = float(np.clip(q_star_explicit, 0.1, 0.8))
 
-        # tidal_pattern is held fixed per MC campaign, not sampled
-        tidal_pattern = self._tidal_pattern  # set in constructor, default "mantle_core"
+        # tidal_pattern and grain mode are held fixed per MC campaign, not sampled
+        tidal_pattern = self._tidal_pattern
+        grain_latitude_mode = self._grain_latitude_mode
 
         profile = LatitudeProfile(
             T_eq=T_eq,
@@ -140,6 +156,7 @@ class LatitudeParameterSampler:
             q_star=q_star_explicit,
             mantle_tidal_fraction=mantle_tidal_fraction,
             tidal_pattern=tidal_pattern,
+            grain_latitude_mode=grain_latitude_mode,
         )
 
         shared_params = {
@@ -148,5 +165,8 @@ class LatitudeParameterSampler:
         }
         shared_params['q_basal'] = q_basal_global
         shared_params['q_tidal'] = q_tidal_global
+        shared_params['q_basal_inherited'] = q_radiogenic + q_tidal_inherited
+        shared_params['q_tidal_inherited'] = q_tidal_inherited
+        shared_params['q_tidal_scale'] = self.q_tidal_scale
 
         return shared_params, profile

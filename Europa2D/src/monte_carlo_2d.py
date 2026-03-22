@@ -100,6 +100,7 @@ def _run_single_2d_sample(
     q_star: Optional[float],
     rannacher_steps: int,
     coordinate_system: str,
+    grain_latitude_mode: str = "global",
 ) -> Optional[Dict[str, Any]]:
     """Worker function for one 2D MC iteration."""
     try:
@@ -108,6 +109,7 @@ def _run_single_2d_sample(
             ocean_pattern=ocean_pattern,
             ocean_amplitude=ocean_amplitude,
             q_star=q_star,
+            grain_latitude_mode=grain_latitude_mode,
         )
         shared_params, profile = sampler.sample()
         D_H2O = shared_params['D_H2O']
@@ -203,6 +205,7 @@ class MonteCarloRunner2D:
         verbose: bool = True,
         rannacher_steps: int = 4,
         coordinate_system: str = 'auto',
+        grain_latitude_mode: str = "global",
     ):
         self.n_iterations = n_iterations
         self.seed = seed if seed is not None else int(time.time())
@@ -222,6 +225,7 @@ class MonteCarloRunner2D:
         self.verbose = verbose
         self.rannacher_steps = rannacher_steps
         self.coordinate_system = coordinate_system
+        self.grain_latitude_mode = grain_latitude_mode
 
     def run(self) -> MonteCarloResults2D:
         if self.verbose:
@@ -249,6 +253,7 @@ class MonteCarloRunner2D:
             q_star=self.q_star,
             rannacher_steps=self.rannacher_steps,
             coordinate_system=self.coordinate_system,
+            grain_latitude_mode=self.grain_latitude_mode,
         )
 
         # Sequential or parallel execution

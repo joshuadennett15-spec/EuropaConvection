@@ -27,13 +27,19 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42, help="Base random seed.")
     parser.add_argument("--n-lat", type=int, default=37, help="Number of latitude columns.")
     parser.add_argument("--nx", type=int, default=31, help="Radial nodes per column.")
-    parser.add_argument("--dt", type=float, default=1e12, help="Time step in seconds.")
-    parser.add_argument("--max-steps", type=int, default=1500, help="Maximum solver steps per sample.")
+    parser.add_argument("--dt", type=float, default=5e12, help="Time step in seconds.")
+    parser.add_argument("--max-steps", type=int, default=500, help="Maximum solver steps per sample.")
     parser.add_argument(
         "--n-workers",
         type=int,
         default=max(1, mp.cpu_count() - 1),
         help="Number of worker processes.",
+    )
+    parser.add_argument(
+        "--grain-mode",
+        choices=["global", "strain"],
+        default="global",
+        help="Grain latitude mode: 'global' (benchmark) or 'strain' (recrystallization).",
     )
     return parser.parse_args()
 
@@ -48,11 +54,14 @@ def run_mc_scenario(
     nx: int,
     dt: float,
     max_steps: int,
+    grain_latitude_mode: str = "global",
 ) -> str:
     """Run one Monte Carlo scenario and return the result path."""
     scenario = get_scenario(scenario_name)
     print(f"\n=== {scenario.name}: {scenario.citation} ===")
     print(f"  {scenario.description}")
+    if grain_latitude_mode != "global":
+        print(f"  grain_latitude_mode: {grain_latitude_mode}")
 
     runner = MonteCarloRunner2D(
         n_iterations=iterations,
@@ -65,6 +74,7 @@ def run_mc_scenario(
         max_steps=max_steps,
         ocean_pattern=scenario.ocean_pattern,
         q_star=scenario.q_star if scenario.q_star > 0 else None,
+        grain_latitude_mode=grain_latitude_mode,
     )
     results = runner.run()
 
@@ -93,6 +103,7 @@ if __name__ == "__main__":
             nx=args.nx,
             dt=args.dt,
             max_steps=args.max_steps,
+            grain_latitude_mode=args.grain_mode,
         )
         saved_paths.append(output_path)
 
