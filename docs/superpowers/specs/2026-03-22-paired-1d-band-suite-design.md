@@ -39,15 +39,25 @@ These are endpoint proxies representing equatorial and polar forcing conditions,
 
 ### Scenario q_tidal_multiplier values
 
-Derived from literature redistribution fractions normalized to the uniform case (fraction / 0.5):
+Derived from the 2D `ocean_heat_flux()` shape functions evaluated at the endpoints
+(phi=0 for equator, phi=pi/2 for pole) with q_star=0.45 (mantle_tidal_fraction=0.5):
 
 | Scenario | Eq multiplier | Pole multiplier | Derivation | Reference |
 |----------|--------------|----------------|------------|-----------|
-| Uniform | 1.00 | 1.00 | 0.500/0.500 | Ashkenazy & Tziperman (2021) |
-| Equator-enhanced | 1.17 | 0.83 | 0.583/0.500, 0.417/0.500 | Soderlund et al. (2014) |
-| Polar-enhanced | 0.67 | 1.33 | 0.333/0.500, 0.667/0.500 | Lemasquerier et al. (2023) |
+| Uniform | 1.00 | 1.00 | q(phi)/q_mean = 1 everywhere | Ashkenazy & Tziperman (2021) |
+| Equator-enhanced | 1.15 | 0.70 | cos²(phi) shape, a=0.643, norm=1.429 | Soderlund et al. (2014) |
+| Polar-enhanced | 0.85 | 1.30 | sin²(phi) shape, a=0.529, norm=1.176 | Lemasquerier et al. (2023) |
 
-The multiplier scales the audited P_tidal directly. The 1D solver computes `q_tidal = P_tidal / A_surface`, so a multiplier of 1.17 means the equator sees 17% more local tidal flux than the global mean. Radiogenic heating is unaffected (spatially uniform in the mantle).
+The multiplier scales the audited P_tidal directly. The 1D solver computes
+`q_tidal = P_tidal / A_surface`, so a multiplier of 1.15 means the equator sees
+15% more local tidal flux than the global mean. Radiogenic heating is unaffected
+(spatially uniform in the mantle).
+
+Note: these are local endpoint flux ratios from the 2D profile equations, not
+hemispheric budget fractions divided by 0.5. The shape function normalization
+preserves the global mean, so the multipliers are asymmetric (equator and pole
+swings are not equal) because sin²(phi) and cos²(phi) have different area-weighted
+integrals over the sphere.
 
 ### Notes on parameter choices
 
