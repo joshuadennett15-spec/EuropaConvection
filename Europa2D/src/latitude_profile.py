@@ -55,6 +55,8 @@ class LatitudeProfile:
     tidal_pattern: str = "mantle_core"  # "mantle_core" | "shell_dominated" | "non_monotonic"
     mid_latitude_amplification: float = 0.3  # used only for non_monotonic pattern
     surface_temp_exponent: float = 1.25  # cos^p(phi) exponent; calibrated to Ashkenazy (2019)
+    grain_latitude_scaling: bool = True  # scale grain size by local tidal strain
+    grain_strain_exponent: float = 0.5  # d_grain ~ (eps_ref/eps(phi))^alpha
 
     def __post_init__(self):
         _TIDAL_PATTERNS = {"mantle_core", "shell_dominated", "non_monotonic"}
@@ -304,6 +306,46 @@ class LatitudeProfile:
             return 1.0
         return max(q_eq, q_pole) / min(q_eq, q_pole)
 
+    def grain_scale_factor(self, phi: FloatOrArray) -> FloatOrArray:
+        """
+        Grain size scaling factor relative to the equatorial reference.
+
+        d_grain(phi) = d_grain_ref * grain_scale_factor(phi)
+
+        Higher tidal strain drives dynamic recrystallization, reducing grain
+        size. The scaling follows:
+
+            factor = (epsilon_eq / epsilon(phi))^grain_strain_exponent
+
+        At the equator: factor = 1.0 (reference).
+        At the pole (default 2:1 strain ratio, alpha=0.5):
+            factor = (1/2)^0.5 = 0.71 (29% smaller grains).
+
+        When grain_latitude_scaling is False, returns 1.0 everywhere.
+
+        References:
+            Goldsby & Kohlstedt (2001): grain-size-sensitive creep in ice
+            De Bresser et al. (2001): paleowattmeter steady-state grain size
+
+        Args:
+            phi: Geographic latitude in radians
+
+        Returns:
+            Dimensionless scale factor (0, 1] for mantle_core pattern
+        """
+        if not self.grain_latitude_scaling:
+            return np.ones_like(np.asarray(phi, dtype=float)) if np.ndim(phi) > 0 else 1.0
+
+        eps_local = self.tidal_strain(phi)
+        eps_ref = self.tidal_strain(0.0)  # equatorial reference
+
+        if eps_ref <= 0:
+            return np.ones_like(np.asarray(phi, dtype=float)) if np.ndim(phi) > 0 else 1.0
+
+        ratio = eps_ref / np.asarray(eps_local, dtype=float)
+        result = ratio ** self.grain_strain_exponent
+        return float(result) if np.ndim(phi) == 0 else result
+
     def evaluate_at(self, phi: float) -> dict:
         """
         Evaluate all latitude-dependent parameters at a single latitude.
@@ -312,10 +354,11 @@ class LatitudeProfile:
             phi: Geographic latitude in radians
 
         Returns:
-            Dict with keys: T_surf, epsilon_0, q_ocean
+            Dict with keys: T_surf, epsilon_0, q_ocean, grain_scale
         """
         return {
             'T_surf': self.surface_temperature(phi),
             'epsilon_0': self.tidal_strain(phi),
             'q_ocean': self.ocean_heat_flux(phi),
+            'grain_scale': self.grain_scale_factor(phi),
         }
