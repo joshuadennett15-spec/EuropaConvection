@@ -55,8 +55,8 @@ class LatitudeProfile:
     tidal_pattern: str = "mantle_core"  # "mantle_core" | "shell_dominated" | "non_monotonic"
     mid_latitude_amplification: float = 0.3  # used only for non_monotonic pattern
     surface_temp_exponent: float = 1.25  # cos^p(phi) exponent; calibrated to Ashkenazy (2019)
-    grain_latitude_scaling: bool = True  # scale grain size by local tidal strain
-    grain_strain_exponent: float = 0.5  # d_grain ~ (eps_ref/eps(phi))^alpha
+    grain_latitude_mode: str = "global"  # "global" | "strain" | "strain_temperature"
+    grain_strain_exponent: float = 0.5  # d_grain ~ (eps_ref/eps(phi))^alpha; used by "strain" modes
 
     def __post_init__(self):
         _TIDAL_PATTERNS = {"mantle_core", "shell_dominated", "non_monotonic"}
@@ -64,6 +64,12 @@ class LatitudeProfile:
             raise ValueError(
                 f"Unknown tidal_pattern={self.tidal_pattern!r}, "
                 f"must be one of {_TIDAL_PATTERNS}"
+            )
+        _GRAIN_MODES = {"global", "strain", "strain_temperature"}
+        if self.grain_latitude_mode not in _GRAIN_MODES:
+            raise ValueError(
+                f"Unknown grain_latitude_mode={self.grain_latitude_mode!r}, "
+                f"must be one of {_GRAIN_MODES}"
             )
         if self.T_floor <= 0:
             raise ValueError(
@@ -312,30 +318,45 @@ class LatitudeProfile:
 
         d_grain(phi) = d_grain_ref * grain_scale_factor(phi)
 
-        Higher tidal strain drives dynamic recrystallization, reducing grain
-        size. The scaling follows:
+        Three modes controlled by grain_latitude_mode:
 
-            factor = (epsilon_eq / epsilon(phi))^grain_strain_exponent
+        "global" (default):
+            Returns 1.0 everywhere. d_grain is shared across all columns.
+            Use this for ocean-transport benchmarks and 1D-vs-2D comparisons.
 
-        At the equator: factor = 1.0 (reference).
-        At the pole (default 2:1 strain ratio, alpha=0.5):
-            factor = (1/2)^0.5 = 0.71 (29% smaller grains).
+        "strain":
+            factor = (epsilon_eq / epsilon(phi))^alpha
+            Higher tidal strain → smaller grains via dynamic recrystallization.
+            At the pole (2:1 strain, alpha=0.5): factor = 0.71.
 
-        When grain_latitude_scaling is False, returns 1.0 everywhere.
+        "strain_temperature":
+            Reserved for future two-pass implementation that includes
+            temperature-dependent grain growth. Not yet implemented;
+            raises NotImplementedError.
 
         References:
             Goldsby & Kohlstedt (2001): grain-size-sensitive creep in ice
             De Bresser et al. (2001): paleowattmeter steady-state grain size
+            Alley et al. (1986): grain growth activation energy in ice
 
         Args:
             phi: Geographic latitude in radians
 
         Returns:
-            Dimensionless scale factor (0, 1] for mantle_core pattern
+            Dimensionless scale factor
         """
-        if not self.grain_latitude_scaling:
+        if self.grain_latitude_mode == "global":
             return np.ones_like(np.asarray(phi, dtype=float)) if np.ndim(phi) > 0 else 1.0
 
+        if self.grain_latitude_mode == "strain_temperature":
+            raise NotImplementedError(
+                "strain_temperature mode requires a two-pass solver with "
+                "lagged interior temperature. Use AxialSolver2D with "
+                "grain_latitude_mode='strain' for the pre-solve pass, then "
+                "update grain sizes from solved T_interior before re-solving."
+            )
+
+        # mode == "strain"
         eps_local = self.tidal_strain(phi)
         eps_ref = self.tidal_strain(0.0)  # equatorial reference
 
