@@ -7,7 +7,7 @@ from objectives import compute_solver_score, compute_physics_score, compute_lati
 
 
 def test_solver_score_baseline_equals_one():
-    """Baseline metrics should produce score ~ 1.0 (normalized)."""
+    """Baseline metrics should produce score ~ 0.65 (zero-error minimum)."""
     ref = {'time': 2.0, 'steps': 200, 'T_2d': np.ones((1, 31)) * 150.0}
     result = {'time': 2.0, 'steps': 200, 'T_2d': np.ones((1, 31)) * 150.0}
     score, metrics = compute_solver_score(result, ref)

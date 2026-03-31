@@ -23,11 +23,15 @@ def compute_solver_score(
     Returns:
         (score, metrics) where lower score is better.
     """
-    max_T_err = float(np.max(np.abs(
-        np.asarray(result['T_2d']) - np.asarray(reference['T_2d'])
-    )))
-    t_ratio = result['time'] / reference['time']
-    iter_ratio = result['steps'] / reference['steps']
+    result_arr = np.asarray(result['T_2d'])
+    ref_arr = np.asarray(reference['T_2d'])
+    if result_arr.shape != ref_arr.shape:
+        raise ValueError(
+            f"T_2d shape mismatch: result {result_arr.shape} vs reference {ref_arr.shape}"
+        )
+    max_T_err = float(np.max(np.abs(result_arr - ref_arr)))
+    t_ratio = result['time'] / max(reference['time'], 1e-12)
+    iter_ratio = result['steps'] / max(reference['steps'], 1)
 
     w = _SOLVER_WEIGHTS
     score = w['time'] * t_ratio + w['err'] * (max_T_err / _SOLVER_ERR_THRESHOLD) + w['iter'] * iter_ratio
@@ -133,7 +137,7 @@ def compute_latitude_score(
     idx_35 = _find_lat_index(lats, _JUNO_LATITUDE_DEG)
 
     d_conv_contrasts = []
-    for name, res in scenarios.items():
+    for _name, res in scenarios.items():
         D_conv_median = np.median(np.asarray(res['D_conv_profiles']), axis=0)
         d_conv_contrasts.append(float(np.max(D_conv_median) - np.min(D_conv_median)))
     d_conv_contrast = max(d_conv_contrasts)
