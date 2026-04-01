@@ -88,15 +88,99 @@ def make_adjuster(
 def _heat_balance_adjuster(state, T_profile, z_grid, H, q_ocean,
                            include_tidal, max_iterations, tolerance,
                            epsilon_0, mu_ice):
-    """Adjust D_cond so conductive lid flux matches local q_ocean."""
-    pass
+    """Adjust D_cond so conductive lid flux matches local q_ocean.
+
+    At equilibrium the conductive lid must transport q_ocean:
+        q_lid = k_lid * (T_c - T_surface) / D_cond = q_ocean
+    This gives: D_cond_eq = k_lid * (T_c - T_surface) / q_ocean
+    Then D_conv = H - D_cond_eq, and Ra/Nu are recomputed.
+    """
+    if not state.is_convecting or q_ocean <= 0:
+        return
+
+    T_surface = float(T_profile[0])
+    T_c = state.T_c
+    T_melt = float(T_profile[-1])
+
+    T_mean_lid = 0.5 * (T_surface + T_c)
+    k_lid = float(Thermal.conductivity(T_mean_lid))
+
+    q_tidal_contrib = 0.0
+    if include_tidal and epsilon_0 > 0 and state.D_conv > 0:
+        T_mean_conv = 0.5 * (T_c + T_melt)
+        try:
+            q_vol = IcePhysics.tidal_heating(
+                np.array([T_mean_conv]),
+                epsilon_0=epsilon_0, mu_ice=mu_ice,
+                use_composite_viscosity=True,
+            )
+            q_tidal_contrib = float(q_vol[0]) * state.D_conv
+        except Exception:
+            q_tidal_contrib = 0.0
+
+    q_total = q_ocean + q_tidal_contrib
+    if q_total <= 0:
+        return
+
+    dT_lid = T_c - T_surface
+    if dT_lid <= 0:
+        return
+
+    D_cond_eq = k_lid * dT_lid / q_total
+    D_cond_eq = max(0.05 * H, min(0.95 * H, D_cond_eq))
+    D_conv_new = H - D_cond_eq
+
+    idx_new = int(np.searchsorted(z_grid, D_cond_eq))
+    idx_new = max(1, min(len(z_grid) - 2, idx_new))
+
+    if state.D_conv > 0:
+        Ra_new = state.Ra * (D_conv_new / state.D_conv) ** 3
+    else:
+        Ra_new = 0.0
+
+    if Ra_new > 0:
+        Nu_new = max(1.0, ConvectionConstants.NU_PREFACTOR * Ra_new ** (1.0 / 3.0))
+    else:
+        Nu_new = 1.0
+
+    state.D_cond = D_cond_eq
+    state.D_conv = D_conv_new
+    state.z_c = D_cond_eq
+    state.idx_c = idx_new
+    state.Ra = Ra_new
+    state.Nu = Nu_new
+    state.is_convecting = Ra_new >= ConvectionConstants.RA_CRIT
 
 
 def _ra_onset_adjuster(state, ra_crit_override):
     """Override is_convecting with custom Ra_crit."""
-    pass
+    should_convect = state.Ra >= ra_crit_override
+
+    if should_convect and not state.is_convecting:
+        state.is_convecting = True
+        if state.Ra > 0:
+            state.Nu = max(1.0, ConvectionConstants.NU_PREFACTOR * state.Ra ** (1.0 / 3.0))
+        else:
+            state.Nu = 1.0
+    elif not should_convect and state.is_convecting:
+        state.is_convecting = False
+        state.Nu = 1.0
 
 
 def _tidal_viscosity_adjuster(state, epsilon_0_local, epsilon_ref, n):
-    """Rescale Ra and Nu using tidal-softened viscosity."""
-    pass
+    """Rescale Ra and Nu using tidal-softened viscosity.
+
+    eta_eff = eta_default / (1 + (epsilon_0 / epsilon_ref)^n)
+    Ra_adj = Ra_default * (1 + (epsilon_0 / epsilon_ref)^n)
+    Nu_adj = C * Ra_adj^(1/3)
+    """
+    if not state.is_convecting or epsilon_ref <= 0:
+        return
+
+    softening = 1.0 + (epsilon_0_local / epsilon_ref) ** n
+    Ra_adj = state.Ra * softening
+
+    Nu_adj = max(1.0, ConvectionConstants.NU_PREFACTOR * Ra_adj ** (1.0 / 3.0))
+
+    state.Ra = Ra_adj
+    state.Nu = Nu_adj
