@@ -58,6 +58,7 @@ class LatitudeParameterSampler:
         tidal_pattern: str = "mantle_core",
         q_tidal_scale: float = TIDAL_FLUX_SCALE,
         grain_latitude_mode: str = "global",
+        T_floor_mean: float = 50.0,
     ):
         seed_sequence = np.random.SeedSequence(seed)
         shared_seq, latitude_seq = seed_sequence.spawn(2)
@@ -74,6 +75,9 @@ class LatitudeParameterSampler:
             raise ValueError("q_tidal_scale must be positive.")
         self.q_tidal_scale = float(q_tidal_scale)
         self._grain_latitude_mode = grain_latitude_mode
+        if T_floor_mean <= 0.0:
+            raise ValueError("T_floor_mean must be positive.")
+        self.T_floor_mean = float(T_floor_mean)
 
     @classmethod
     def shared_parameter_names(cls) -> Tuple[str, ...]:
@@ -96,27 +100,33 @@ class LatitudeParameterSampler:
         D_H2O = audited_params['D_H2O']
         H_rad = audited_params['H_rad']
 
-        # Latitude-dependent surface forcing:
-        # keep an equatorial anchor rather than reusing the audited global 1D
-        # T_surf value, because T_surf is an explicitly latitude-varying field
-        # in the 2D model.
-        T_eq = self.rng.normal(110.0, 5.0)
-        T_eq = np.clip(T_eq, 80.0, 115.0)
+        # 2D grain-size override: shift prior center from 0.6 mm to 1.5 mm
+        # to favour thicker conductive lids (Barr & McKinnon 2007 supports
+        # equilibrium grains up to 30-80 mm; 1.5 mm is still conservative).
+        d_grain_2d = 10 ** self.rng.normal(np.log10(1.5e-3), 0.35)
+        d_grain_2d = float(np.clip(d_grain_2d, 5e-5, 5e-3))
+        audited_params['d_grain'] = d_grain_2d
 
-        # Keep the 2D equator aligned with the 1D equatorial-proxy workflow
-        # (110 +/- 5 K), but retain a colder polar floor as an explicit
-        # latitude-dependent boundary condition.  Sample T_floor independently
-        # of q_ocean_mean to avoid double-counting polar thermal effects.
-        T_floor = self.rng.normal(46.0, 4.0)
-        T_floor = float(np.clip(T_floor, 38.0, 58.0))
+
+        # Reuse the audited 1D surface-temperature draw at the equator so the
+        # 2D equatorial anchor matches the 1D prior exactly for each realization.
+        T_eq = float(np.clip(audited_params['T_surf'], 80.0, 120.0))
+
+        # Sample a warmer polar floor than the old Ashkenazy-only default while
+        # preserving a modest spread around the requested mean.
+        floor_low = max(1.0, self.T_floor_mean - 8.0)
+        floor_high = self.T_floor_mean + 9.0
+        T_floor = self.rng.normal(self.T_floor_mean, 4.0)
+        T_floor = float(np.clip(T_floor, floor_low, floor_high))
         T_floor = min(T_floor, T_eq - 1.0)
 
         # Latitude-varying tidal strain uses equatorial and polar anchors.
-        epsilon_eq = 10 ** self.rng.normal(np.log10(6e-6), 0.2)
-        epsilon_eq = np.clip(epsilon_eq, 2e-6, 2e-5)
+        # Tightened: 0.15 dex sigma (was 0.2); clips match 1D proxy priors.
+        epsilon_eq = 10 ** self.rng.normal(np.log10(6e-6), 0.15)
+        epsilon_eq = np.clip(epsilon_eq, 3e-6, 1.2e-5)
 
-        epsilon_pole = 10 ** self.rng.normal(np.log10(1.2e-5), 0.2)
-        epsilon_pole = np.clip(epsilon_pole, 2e-6, 3.4e-5)
+        epsilon_pole = 10 ** self.rng.normal(np.log10(1.2e-5), 0.15)
+        epsilon_pole = np.clip(epsilon_pole, 6e-6, 2.5e-5)
 
         # Mean basal heat flux inherits the audited 1D shell prior. In the
         # current 2D proxy that global-mean basal flux is redistributed by the
