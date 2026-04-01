@@ -44,7 +44,7 @@ class ExperimentHarness:
     _REF_T_SURF = 104.0
     _REF_Q_OCEAN = 0.025
     _REF_NX = 31
-    _REF_DT = 5e12
+    _REF_DT = 1e12
     _REF_THICKNESS = 20e3
 
     def __init__(self, base_dir: Optional[str] = None):
@@ -191,7 +191,10 @@ class ExperimentHarness:
 
     # --- Latitude mode ---
 
-    def _run_latitude_experiment(self, n_samples: int, n_workers: int):
+    def _run_latitude_experiment(self, n_samples: int, n_workers: int,
+                                 hypothesis=None,
+                                 grain_latitude_mode='global',
+                                 grain_strain_exponent=0.5):
         """Run 3 scenarios + 1D/2D calibration, then score."""
         scenario_configs = [
             ('uniform', 'uniform', None),
@@ -200,7 +203,12 @@ class ExperimentHarness:
         ]
         scenarios = {}
         for name, pattern, q_star in scenario_configs:
-            mc = self._run_mc_ensemble(pattern, n_samples=n_samples, n_workers=n_workers, q_star=q_star)
+            mc = self._run_mc_ensemble(
+                pattern, n_samples=n_samples, n_workers=n_workers,
+                q_star=q_star, hypothesis=hypothesis,
+                grain_latitude_mode=grain_latitude_mode,
+                grain_strain_exponent=grain_strain_exponent,
+            )
             scenarios[name] = self._mc_to_dict(mc)
 
         consistency_error = self._run_calibration_check()
@@ -249,7 +257,8 @@ class ExperimentHarness:
         return abs(H_2d - H_1d) / H_1d
 
     def _run_mc_ensemble(self, ocean_pattern: str, n_samples: int, n_workers: int,
-                         q_star: Optional[float] = None):
+                         q_star: Optional[float] = None, hypothesis=None,
+                         grain_latitude_mode='global', grain_strain_exponent=0.5):
         """Run one MC ensemble via MonteCarloRunner2D."""
         from monte_carlo_2d import MonteCarloRunner2D
 
@@ -260,6 +269,8 @@ class ExperimentHarness:
             ocean_pattern=ocean_pattern,
             q_star=q_star,
             verbose=False,
+            hypothesis=hypothesis,
+            grain_latitude_mode=grain_latitude_mode,
         )
         return runner.run()
 

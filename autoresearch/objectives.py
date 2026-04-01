@@ -157,6 +157,15 @@ def compute_latitude_score(
             js_values.append(_js_divergence(d_a, d_b))
     min_js = min(js_values) if js_values else 0.0
 
+    # Secondary: D_conv JS divergence (tracked, not scored)
+    d_conv_js_values = []
+    for i in range(len(scenario_names)):
+        for j in range(i + 1, len(scenario_names)):
+            d_a = np.asarray(scenarios[scenario_names[i]]['D_conv_profiles'])[:, idx_35]
+            d_b = np.asarray(scenarios[scenario_names[j]]['D_conv_profiles'])[:, idx_35]
+            d_conv_js_values.append(_js_divergence(d_a, d_b))
+    min_js_dconv = min(d_conv_js_values) if d_conv_js_values else 0.0
+
     D_cond_35_all = []
     for res in scenarios.values():
         D_cond_35_all.append(np.median(np.asarray(res['D_cond_profiles'])[:, idx_35]))
@@ -185,6 +194,7 @@ def compute_latitude_score(
     metrics = {
         'D_conv_contrast': d_conv_contrast,
         'JS_discriminability': min_js,
+        'JS_discriminability_Dconv': min_js_dconv,
         'Ra_eq_median': ra_eq,
         'Ra_pole_median': ra_pole,
         'Ra_log_ratio': ra_log_ratio,

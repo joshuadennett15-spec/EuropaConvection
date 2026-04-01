@@ -1,0 +1,46 @@
+{
+  "n_samples": 150,
+  "n_workers": 7,
+  "experiments": [
+    {
+      "name": "baseline_150",
+      "hypothesis": null,
+      "config_overrides": {}
+    },
+    {
+      "name": "grain_alpha05",
+      "hypothesis": null,
+      "config_overrides": {"grain_latitude_mode": "strain", "grain_strain_exponent": 0.5}
+    },
+    {
+      "name": "grain_alpha10",
+      "hypothesis": null,
+      "config_overrides": {"grain_latitude_mode": "strain", "grain_strain_exponent": 1.0}
+    },
+    {
+      "name": "heatbal_ocean",
+      "hypothesis": {"mechanism": "heat_balance", "params": {"include_tidal": false, "max_iterations": 5, "tolerance": 1e-4}},
+      "config_overrides": {}
+    },
+    {
+      "name": "heatbal_total",
+      "hypothesis": {"mechanism": "heat_balance", "params": {"include_tidal": true, "max_iterations": 5, "tolerance": 1e-4}},
+      "config_overrides": {}
+    },
+    {
+      "name": "ra_crit_800",
+      "hypothesis": {"mechanism": "ra_onset", "params": {"ra_crit_override": 800}},
+      "config_overrides": {}
+    },
+    {
+      "name": "ra_crit_1200",
+      "hypothesis": {"mechanism": "ra_onset", "params": {"ra_crit_override": 1200}},
+      "config_overrides": {}
+    },
+    {
+      "name": "tidal_visc_n1",
+      "hypothesis": {"mechanism": "tidal_viscosity", "params": {"epsilon_ref": 6e-6, "softening_exponent": 1.0}},
+      "config_overrides": {}
+    }
+  ]
+}
