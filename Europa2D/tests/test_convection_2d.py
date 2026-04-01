@@ -109,8 +109,8 @@ class TestHeatBalanceAdjuster:
 
         assert state_hi.D_conv > state_lo.D_conv
 
-    def test_non_convecting_state_unchanged(self):
-        """If is_convecting=False, adjuster should not modify state."""
+    def test_non_convecting_state_adjusted_by_heat_balance(self):
+        """Heat-balance adjuster modifies even non-convecting states (computes Ra from scratch)."""
         state = _make_test_state(is_convecting=False, Ra=500.0, Nu=1.0)
         T = np.linspace(96.0, 273.0, 31)
         z = np.linspace(0, 20e3, 31)
@@ -121,7 +121,10 @@ class TestHeatBalanceAdjuster:
         adj = make_adjuster(hyp, 0.0, profile)
         adj(state, T, z, 20e3, 0.02)
 
-        assert state.D_cond == D_cond_before
+        # Heat-balance adjuster now computes D_cond from q_ocean regardless of initial state
+        assert state.D_cond != D_cond_before, (
+            "heat_balance adjuster should modify D_cond even for initially non-convecting states"
+        )
 
     def test_d_cond_clamped_to_physical_range(self):
         """D_cond must stay within [0.05*H, 0.95*H]."""

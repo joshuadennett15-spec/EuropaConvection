@@ -112,13 +112,19 @@ _LAT_WEIGHTS = {
 _JS_BIN_EDGES = np.arange(5.0, 61.0, 1.0)
 
 
-def _js_divergence(samples_a: np.ndarray, samples_b: np.ndarray) -> float:
+def _js_divergence(samples_a: np.ndarray, samples_b: np.ndarray,
+                   bin_edges: np.ndarray = _JS_BIN_EDGES) -> float:
     """Jensen-Shannon divergence between two sample sets using fixed bins."""
-    hist_a, _ = np.histogram(samples_a, bins=_JS_BIN_EDGES, density=True)
-    hist_b, _ = np.histogram(samples_b, bins=_JS_BIN_EDGES, density=True)
+    if len(samples_a) == 0 or len(samples_b) == 0:
+        return 0.0
+    hist_a, _ = np.histogram(samples_a, bins=bin_edges, density=False)
+    hist_b, _ = np.histogram(samples_b, bins=bin_edges, density=False)
+    # If either histogram is all zeros (all samples outside bins), return 0
+    if hist_a.sum() == 0 or hist_b.sum() == 0:
+        return 0.0
     eps = 1e-12
-    p = hist_a + eps
-    q = hist_b + eps
+    p = hist_a.astype(float) + eps
+    q = hist_b.astype(float) + eps
     p = p / p.sum()
     q = q / q.sum()
     m = 0.5 * (p + q)
@@ -158,12 +164,14 @@ def compute_latitude_score(
     min_js = min(js_values) if js_values else 0.0
 
     # Secondary: D_conv JS divergence (tracked, not scored)
+    # Use bins starting from 0 since D_conv can be zero for collapsed states
+    _DCONV_BIN_EDGES = np.arange(0.0, 30.0, 0.5)
     d_conv_js_values = []
     for i in range(len(scenario_names)):
         for j in range(i + 1, len(scenario_names)):
             d_a = np.asarray(scenarios[scenario_names[i]]['D_conv_profiles'])[:, idx_35]
             d_b = np.asarray(scenarios[scenario_names[j]]['D_conv_profiles'])[:, idx_35]
-            d_conv_js_values.append(_js_divergence(d_a, d_b))
+            d_conv_js_values.append(_js_divergence(d_a, d_b, _DCONV_BIN_EDGES))
     min_js_dconv = min(d_conv_js_values) if d_conv_js_values else 0.0
 
     D_cond_35_all = []

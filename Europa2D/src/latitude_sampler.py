@@ -58,6 +58,7 @@ class LatitudeParameterSampler:
         tidal_pattern: str = "mantle_core",
         q_tidal_scale: float = TIDAL_FLUX_SCALE,
         grain_latitude_mode: str = "global",
+        grain_strain_exponent: float = 0.5,
         T_floor_mean: float = 50.0,
     ):
         seed_sequence = np.random.SeedSequence(seed)
@@ -75,6 +76,7 @@ class LatitudeParameterSampler:
             raise ValueError("q_tidal_scale must be positive.")
         self.q_tidal_scale = float(q_tidal_scale)
         self._grain_latitude_mode = grain_latitude_mode
+        self._grain_strain_exponent = float(grain_strain_exponent)
         if T_floor_mean <= 0.0:
             raise ValueError("T_floor_mean must be positive.")
         self.T_floor_mean = float(T_floor_mean)
@@ -167,6 +169,7 @@ class LatitudeParameterSampler:
             mantle_tidal_fraction=mantle_tidal_fraction,
             tidal_pattern=tidal_pattern,
             grain_latitude_mode=grain_latitude_mode,
+            grain_strain_exponent=self._grain_strain_exponent,
         )
 
         shared_params = {

@@ -110,6 +110,7 @@ def _run_single_2d_sample(
     rannacher_steps: int,
     coordinate_system: str,
     grain_latitude_mode: str = "global",
+    grain_strain_exponent: float = 0.5,
     q_tidal_scale: float = 1.20,
     T_floor: float = 50.0,
     hypothesis_mechanism: Optional[str] = None,
@@ -123,6 +124,7 @@ def _run_single_2d_sample(
             ocean_amplitude=ocean_amplitude,
             q_star=q_star,
             grain_latitude_mode=grain_latitude_mode,
+            grain_strain_exponent=grain_strain_exponent,
             q_tidal_scale=q_tidal_scale,
             T_floor_mean=T_floor,
         )
@@ -234,6 +236,7 @@ class MonteCarloRunner2D:
         rannacher_steps: int = 4,
         coordinate_system: str = 'auto',
         grain_latitude_mode: str = "global",
+        grain_strain_exponent: float = 0.5,
         q_tidal_scale: float = 1.20,
         hypothesis=None,
     ):
@@ -256,6 +259,7 @@ class MonteCarloRunner2D:
         self.rannacher_steps = rannacher_steps
         self.coordinate_system = coordinate_system
         self.grain_latitude_mode = grain_latitude_mode
+        self.grain_strain_exponent = grain_strain_exponent
         self.q_tidal_scale = q_tidal_scale
         self.hypothesis = hypothesis
 
@@ -286,6 +290,7 @@ class MonteCarloRunner2D:
             rannacher_steps=self.rannacher_steps,
             coordinate_system=self.coordinate_system,
             grain_latitude_mode=self.grain_latitude_mode,
+            grain_strain_exponent=self.grain_strain_exponent,
             q_tidal_scale=self.q_tidal_scale,
             T_floor=self.T_floor,
             hypothesis_mechanism=self.hypothesis.mechanism if self.hypothesis else None,

@@ -52,15 +52,13 @@ def make_adjuster(
 
     if mechanism == "heat_balance":
         include_tidal = params.get("include_tidal", False)
-        max_iterations = params.get("max_iterations", 5)
-        tolerance = params.get("tolerance", 1e-4)
         epsilon_0 = float(profile.tidal_strain(phi))
         mu_ice = 3.3e9
 
         def adjuster(state, T_profile, z_grid, total_thickness, q_ocean):
             _heat_balance_adjuster(
                 state, T_profile, z_grid, total_thickness, q_ocean,
-                include_tidal, max_iterations, tolerance, epsilon_0, mu_ice,
+                include_tidal, epsilon_0, mu_ice,
             )
         return adjuster
 
@@ -68,7 +66,7 @@ def make_adjuster(
         ra_crit = params["ra_crit_override"]
 
         def adjuster(state, T_profile, z_grid, total_thickness, q_ocean):
-            _ra_onset_adjuster(state, ra_crit)
+            _ra_onset_adjuster(state, ra_crit, T_profile, z_grid, total_thickness)
         return adjuster
 
     if mechanism == "tidal_viscosity":
@@ -86,27 +84,30 @@ def make_adjuster(
 # --- Hypothesis implementations (stubs, filled in Tasks 5-7) ---
 
 def _heat_balance_adjuster(state, T_profile, z_grid, H, q_ocean,
-                           include_tidal, max_iterations, tolerance,
-                           epsilon_0, mu_ice):
+                           include_tidal, epsilon_0, mu_ice):
     """Adjust D_cond so conductive lid flux matches local q_ocean.
 
     At equilibrium the conductive lid must transport q_ocean:
         q_lid = k_lid * (T_c - T_surface) / D_cond = q_ocean
     This gives: D_cond_eq = k_lid * (T_c - T_surface) / q_ocean
-    Then D_conv = H - D_cond_eq, and Ra/Nu are recomputed.
+    Then D_conv = H - D_cond_eq, and Ra/Nu are recomputed from scratch.
     """
-    if not state.is_convecting or q_ocean <= 0:
+    if q_ocean <= 0:
         return
 
     T_surface = float(T_profile[0])
     T_c = state.T_c
     T_melt = float(T_profile[-1])
 
+    # If T_c is unset or non-physical, estimate from rheology
+    if T_c <= T_surface or T_c >= T_melt:
+        T_c = 0.75 * T_melt + 0.25 * T_surface
+
     T_mean_lid = 0.5 * (T_surface + T_c)
     k_lid = float(Thermal.conductivity(T_mean_lid))
 
     q_tidal_contrib = 0.0
-    if include_tidal and epsilon_0 > 0 and state.D_conv > 0:
+    if include_tidal and epsilon_0 > 0:
         T_mean_conv = 0.5 * (T_c + T_melt)
         try:
             q_vol = IcePhysics.tidal_heating(
@@ -114,7 +115,7 @@ def _heat_balance_adjuster(state, T_profile, z_grid, H, q_ocean,
                 epsilon_0=epsilon_0, mu_ice=mu_ice,
                 use_composite_viscosity=True,
             )
-            q_tidal_contrib = float(q_vol[0]) * state.D_conv
+            q_tidal_contrib = float(q_vol[0]) * max(state.D_conv, 1000.0)
         except Exception:
             q_tidal_contrib = 0.0
 
@@ -133,8 +134,20 @@ def _heat_balance_adjuster(state, T_profile, z_grid, H, q_ocean,
     idx_new = int(np.searchsorted(z_grid, D_cond_eq))
     idx_new = max(1, min(len(z_grid) - 2, idx_new))
 
-    if state.D_conv > 0:
-        Ra_new = state.Ra * (D_conv_new / state.D_conv) ** 3
+    # Compute Ra from scratch (not scaling, which fails when D_conv_old=0)
+    DT_conv = T_melt - T_c
+    if DT_conv > 0 and D_conv_new > 0:
+        alpha = 1.6e-4   # thermal expansion coefficient
+        rho = 917.0      # ice density
+        g = 1.315        # Europa surface gravity
+        kappa = 1.1e-6   # thermal diffusivity
+        # Estimate viscosity at mean convective temperature
+        T_mean_conv = 0.5 * (T_c + T_melt)
+        try:
+            eta = IcePhysics.composite_viscosity(T_mean_conv)
+        except Exception:
+            eta = 1e14
+        Ra_new = rho * g * alpha * DT_conv * D_conv_new**3 / (kappa * max(eta, 1e8))
     else:
         Ra_new = 0.0
 
@@ -152,11 +165,22 @@ def _heat_balance_adjuster(state, T_profile, z_grid, H, q_ocean,
     state.is_convecting = Ra_new >= ConvectionConstants.RA_CRIT
 
 
-def _ra_onset_adjuster(state, ra_crit_override):
-    """Override is_convecting with custom Ra_crit."""
+def _ra_onset_adjuster(state, ra_crit_override, T_profile, z_grid, H):
+    """Override is_convecting with custom Ra_crit, reconstructing D_conv if needed."""
     should_convect = state.Ra >= ra_crit_override
 
     if should_convect and not state.is_convecting:
+        # Reconstruct convective layer from T_c (collapsed by onset_consistent_partition)
+        T_c = state.T_c
+        if T_c > 0:
+            warm = np.where(T_profile >= T_c)[0]
+            if len(warm) > 0:
+                idx_c = warm[0]
+                z_c = float(z_grid[idx_c])
+                state.idx_c = idx_c
+                state.z_c = z_c
+                state.D_cond = z_c
+                state.D_conv = H - z_c
         state.is_convecting = True
         if state.Ra > 0:
             state.Nu = max(1.0, ConvectionConstants.NU_PREFACTOR * state.Ra ** (1.0 / 3.0))
