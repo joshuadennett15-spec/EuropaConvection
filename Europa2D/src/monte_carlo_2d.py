@@ -48,14 +48,23 @@ class MonteCarloResults2D:
     runtime_seconds: float
     ocean_pattern: str
     ocean_amplitude: float
-    T_floor: float = 46.0  # Ashkenazy (2019) annual-mean polar floor at Q=0.05 W/m²
+    T_floor: float = 50.0
     q_star: float = 0.0
     mantle_tidal_fraction: float = 0.5
+    q_tidal_scale: float = 1.20
     D_cond_profiles: Optional[npt.NDArray[np.float64]] = None   # (n_valid, n_lat)
     D_conv_profiles: Optional[npt.NDArray[np.float64]] = None
     Ra_profiles: Optional[npt.NDArray[np.float64]] = None
     Nu_profiles: Optional[npt.NDArray[np.float64]] = None
     lid_fraction_profiles: Optional[npt.NDArray[np.float64]] = None
+    T_c_profiles: Optional[npt.NDArray[np.float64]] = None
+    Ti_profiles: Optional[npt.NDArray[np.float64]] = None
+
+    # T_c / Ti aggregate statistics (n_lat,)
+    T_c_median: Optional[npt.NDArray[np.float64]] = None
+    T_c_mean: Optional[npt.NDArray[np.float64]] = None
+    Ti_median: Optional[npt.NDArray[np.float64]] = None
+    Ti_mean: Optional[npt.NDArray[np.float64]] = None
 
     # D_cond aggregate statistics (n_lat,) — same shape as H_median
     D_cond_median: Optional[npt.NDArray[np.float64]] = None
@@ -101,6 +110,10 @@ def _run_single_2d_sample(
     rannacher_steps: int,
     coordinate_system: str,
     grain_latitude_mode: str = "global",
+    q_tidal_scale: float = 1.20,
+    T_floor: float = 50.0,
+    hypothesis_mechanism: Optional[str] = None,
+    hypothesis_params: Optional[dict] = None,
 ) -> Optional[Dict[str, Any]]:
     """Worker function for one 2D MC iteration."""
     try:
@@ -110,6 +123,8 @@ def _run_single_2d_sample(
             ocean_amplitude=ocean_amplitude,
             q_star=q_star,
             grain_latitude_mode=grain_latitude_mode,
+            q_tidal_scale=q_tidal_scale,
+            T_floor_mean=T_floor,
         )
         shared_params, profile = sampler.sample()
         D_H2O = shared_params['D_H2O']
@@ -128,6 +143,14 @@ def _run_single_2d_sample(
         else:
             H_guess = initial_thickness
 
+        hyp = None
+        if hypothesis_mechanism is not None:
+            from convection_2d import ConvectionHypothesis
+            hyp = ConvectionHypothesis(
+                mechanism=hypothesis_mechanism,
+                params=hypothesis_params or {},
+            )
+
         solver = AxialSolver2D(
             n_lat=n_lat,
             nx=nx,
@@ -138,6 +161,7 @@ def _run_single_2d_sample(
             initial_thickness=H_guess,
             rannacher_steps=rannacher_steps,
             coordinate_system=coordinate_system,
+            hypothesis=hyp,
         )
 
         result = solver.run_to_equilibrium(
@@ -168,6 +192,8 @@ def _run_single_2d_sample(
         Ra = np.array([d['Ra'] for d in diag])
         Nu = np.array([d['Nu'] for d in diag])
         lid_frac = np.array([d['lid_fraction'] for d in diag])
+        T_c_arr = np.array([d.get('T_c', 0.0) for d in diag])
+        Ti_arr = np.array([d.get('Ti', 0.0) for d in diag])
 
         return {
             'H_km': H_km,
@@ -176,6 +202,8 @@ def _run_single_2d_sample(
             'Ra': Ra,
             'Nu': Nu,
             'lid_fraction': lid_frac,
+            'T_c': T_c_arr,
+            'Ti': Ti_arr,
         }
 
     except Exception:
@@ -192,20 +220,22 @@ class MonteCarloRunner2D:
         n_workers: Optional[int] = None,
         n_lat: int = 19,
         nx: int = 31,
-        dt: float = 5e12,
+        dt: float = 1e12,
         use_convection: bool = True,
-        max_steps: int = 500,
+        max_steps: int = 1500,
         eq_threshold: float = 1e-12,
         initial_thickness: float = 20e3,
         ocean_pattern: OceanPattern = "uniform",
         ocean_amplitude: Optional[float] = None,
         q_star: Optional[float] = None,
-        T_floor: float = 46.0,
+        T_floor: float = 50.0,
         mantle_tidal_fraction: float = 0.5,
         verbose: bool = True,
         rannacher_steps: int = 4,
         coordinate_system: str = 'auto',
         grain_latitude_mode: str = "global",
+        q_tidal_scale: float = 1.20,
+        hypothesis=None,
     ):
         self.n_iterations = n_iterations
         self.seed = seed if seed is not None else int(time.time())
@@ -226,6 +256,8 @@ class MonteCarloRunner2D:
         self.rannacher_steps = rannacher_steps
         self.coordinate_system = coordinate_system
         self.grain_latitude_mode = grain_latitude_mode
+        self.q_tidal_scale = q_tidal_scale
+        self.hypothesis = hypothesis
 
     def run(self) -> MonteCarloResults2D:
         if self.verbose:
@@ -254,6 +286,10 @@ class MonteCarloRunner2D:
             rannacher_steps=self.rannacher_steps,
             coordinate_system=self.coordinate_system,
             grain_latitude_mode=self.grain_latitude_mode,
+            q_tidal_scale=self.q_tidal_scale,
+            T_floor=self.T_floor,
+            hypothesis_mechanism=self.hypothesis.mechanism if self.hypothesis else None,
+            hypothesis_params=self.hypothesis.params if self.hypothesis else None,
         )
 
         # Sequential or parallel execution
@@ -287,6 +323,8 @@ class MonteCarloRunner2D:
         Ra = np.array([r['Ra'] for r in valid_results])
         Nu = np.array([r['Nu'] for r in valid_results])
         lid_frac = np.array([r['lid_fraction'] for r in valid_results])
+        T_c_stack = np.array([r['T_c'] for r in valid_results])
+        Ti_stack = np.array([r['Ti'] for r in valid_results])
 
         latitudes_deg = np.linspace(0, 90, self.n_lat)
 
@@ -301,6 +339,12 @@ class MonteCarloRunner2D:
         D_conv_mean = np.mean(D_conv, axis=0)
         D_conv_sigma_low = np.percentile(D_conv, 15.87, axis=0)
         D_conv_sigma_high = np.percentile(D_conv, 84.13, axis=0)
+
+        # T_c / Ti aggregate statistics
+        T_c_median = np.median(T_c_stack, axis=0)
+        T_c_mean = np.mean(T_c_stack, axis=0)
+        Ti_median = np.median(Ti_stack, axis=0)
+        Ti_mean = np.mean(Ti_stack, axis=0)
 
         # Latitude-band mean distributions: (n_valid,)
         H_low_band = band_mean_samples(latitudes_deg, H_profiles, LOW_LAT_BAND)
@@ -346,6 +390,13 @@ class MonteCarloRunner2D:
             Ra_profiles=Ra,
             Nu_profiles=Nu,
             lid_fraction_profiles=lid_frac,
+            T_c_profiles=T_c_stack,
+            Ti_profiles=Ti_stack,
+            T_c_median=T_c_median,
+            T_c_mean=T_c_mean,
+            Ti_median=Ti_median,
+            Ti_mean=Ti_mean,
+            q_tidal_scale=self.q_tidal_scale if hasattr(self, 'q_tidal_scale') else 1.20,
             D_cond_median=D_cond_median,
             D_cond_mean=D_cond_mean,
             D_cond_sigma_low=D_cond_sigma_low,
@@ -391,11 +442,13 @@ def save_results_2d(results: MonteCarloResults2D, filepath: str) -> None:
         'T_floor': results.T_floor,
         'q_star': results.q_star,
         'mantle_tidal_fraction': results.mantle_tidal_fraction,
+        'q_tidal_scale': results.q_tidal_scale,
     }
     optional_arrays = [
-        'D_cond_profiles', 'D_conv_profiles', 'Ra_profiles', 'Nu_profiles', 'lid_fraction_profiles',
+        'D_cond_profiles', 'D_conv_profiles', 'Ra_profiles', 'Nu_profiles', 'lid_fraction_profiles', 'T_c_profiles', 'Ti_profiles',
         'D_cond_median', 'D_cond_mean', 'D_cond_sigma_low', 'D_cond_sigma_high',
         'D_conv_median', 'D_conv_mean', 'D_conv_sigma_low', 'D_conv_sigma_high',
+        'T_c_median', 'T_c_mean', 'Ti_median', 'Ti_mean',
         'conv_fraction_median', 'conv_fraction_mean', 'conv_fraction_sigma_low', 'conv_fraction_sigma_high',
         'H_low_band', 'H_high_band', 'D_cond_low_band', 'D_cond_high_band',
     ]

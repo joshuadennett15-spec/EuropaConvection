@@ -207,3 +207,86 @@ class TestTidalViscosityAdjuster:
         Nu_before = state.Nu
         adj(state, np.zeros(31), np.zeros(31), 20e3, 0.02)
         assert state.Nu == Nu_before
+
+
+from axial_solver import AxialSolver2D
+
+
+class TestAxialSolverHypothesis:
+
+    def test_accepts_hypothesis_kwarg(self):
+        hyp = ConvectionHypothesis(
+            mechanism="ra_onset",
+            params={"ra_crit_override": 1200},
+        )
+        profile = LatitudeProfile(q_ocean_mean=0.02)
+        solver = AxialSolver2D(
+            n_lat=5, nx=21, dt=1e12,
+            latitude_profile=profile,
+            use_convection=True,
+            initial_thickness=20e3,
+            hypothesis=hyp,
+        )
+        assert solver is not None
+
+    def test_hypothesis_changes_equilibrium(self):
+        """A non-trivial hypothesis must change the thickness profile.
+
+        Uses ra_onset with ra_crit_override=20, which is well below the
+        typical Ra~30-50 reached after a few steps at q_ocean=0.02 W/m².
+        This forces columns into convection that the default solver (Ra_crit=1000)
+        keeps conductive, so the two solvers diverge measurably within 50 steps.
+        """
+        profile = LatitudeProfile(q_ocean_mean=0.02)
+        base_kwargs = dict(
+            n_lat=5, nx=21, dt=1e12,
+            latitude_profile=profile,
+            use_convection=True,
+            initial_thickness=20e3,
+            rannacher_steps=2,
+        )
+        s_none = AxialSolver2D(**base_kwargs)
+        s_hyp = AxialSolver2D(
+            **base_kwargs,
+            hypothesis=ConvectionHypothesis(
+                mechanism="ra_onset",
+                params={"ra_crit_override": 20},
+            ),
+        )
+
+        q_ocean = np.array([profile.ocean_heat_flux(phi) for phi in s_none.latitudes])
+
+        for _ in range(50):
+            s_none.solve_step(q_ocean)
+            s_hyp.solve_step(q_ocean)
+
+        H_none = s_none.get_thickness_profile()
+        H_hyp = s_hyp.get_thickness_profile()
+
+        assert not np.allclose(H_none, H_hyp, atol=1.0), (
+            "hypothesis must change solver evolution, not just diagnostics"
+        )
+
+
+from monte_carlo_2d import MonteCarloRunner2D
+
+
+class TestMCHypothesisThreading:
+
+    def test_runner_accepts_hypothesis(self):
+        hyp = ConvectionHypothesis(
+            mechanism="ra_onset",
+            params={"ra_crit_override": 1200},
+        )
+        runner = MonteCarloRunner2D(
+            n_iterations=2,
+            seed=42,
+            n_workers=1,
+            n_lat=5,
+            nx=21,
+            ocean_pattern="uniform",
+            verbose=False,
+            hypothesis=hyp,
+        )
+        results = runner.run()
+        assert results.n_valid >= 1

@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'EuropaPr
 
 import numpy as np
 import numpy.typing as npt
-from typing import Dict, Optional, Any, List
+from typing import Dict, Literal, Optional, Any, List
+from scipy.linalg import solve_banded
 
 from Solver import Thermal_Solver
 from Boundary_Conditions import FixedTemperature
@@ -24,6 +25,7 @@ from Physics import IcePhysics
 from constants import Planetary, Thermal
 
 from latitude_profile import LatitudeProfile
+from convection_2d import ConvectionHypothesis, make_adjuster
 
 
 class AxialSolver2D:
@@ -38,7 +40,7 @@ class AxialSolver2D:
         self,
         n_lat: int = 19,
         nx: int = 31,
-        dt: float = 5e12,
+        dt: float = 1e12,
         total_time: float = 5e14,
         latitude_profile: Optional[LatitudeProfile] = None,
         physics_params: Optional[Dict[str, float]] = None,
@@ -46,6 +48,8 @@ class AxialSolver2D:
         initial_thickness: float = 20e3,
         rannacher_steps: int = 4,
         coordinate_system: str = 'auto',
+        lateral_method: Literal['implicit', 'explicit'] = 'implicit',
+        hypothesis: Optional[ConvectionHypothesis] = None,
     ):
         """
         Initialize the 2D axisymmetric solver.
@@ -61,24 +65,30 @@ class AxialSolver2D:
             initial_thickness: Starting ice shell thickness for all columns (m)
             rannacher_steps: Number of Backward Euler startup steps
             coordinate_system: 'auto', 'cartesian', or 'spherical'
+            lateral_method: 'implicit' (tridiagonal solve, unconditionally stable)
+                or 'explicit' (forward Euler, retained for validation)
         """
         self.n_lat = n_lat
         self.nx = nx
         self.dt = dt
         self.total_time = total_time
         self.use_convection = use_convection
+        self.lateral_method = lateral_method
+        self.hypothesis = hypothesis
         self.profile = latitude_profile or LatitudeProfile()
-        self._shared_params = physics_params or {}
+        self._shared_params = dict(physics_params or {})
+        if use_convection:
+            # Opt into the richer transition closure for 2D columns without
+            # changing legacy 1D solver defaults.
+            self._shared_params.setdefault('use_composite_transition_closure', True)
+            self._shared_params.setdefault('use_onset_consistent_partition', True)
 
         # Geographic latitude grid: 0 (equator) to pi/2 (pole)
         self.latitudes = np.linspace(0, np.pi / 2, n_lat)
         self.dphi = self.latitudes[1] - self.latitudes[0] if n_lat > 1 else 1.0
 
         # Build one 1D solver per latitude column.
-        # Instead of hard-disabling convection below 70K, we always enable it
-        # but apply a smooth ramp factor to the Nusselt enhancement via
-        # Thermal_Solver.convection_ramp.  This avoids the discontinuous jump
-        # from full convection to pure conduction between adjacent columns.
+        # Each column uses the shared 1D convection logic directly.
 
         self.columns: List[Thermal_Solver] = []
         for j in range(n_lat):
@@ -98,6 +108,9 @@ class AxialSolver2D:
 
             surface_bc = FixedTemperature(temperature=lat_vals['T_surf'])
 
+            # Create per-column convection adjuster from hypothesis
+            adjuster = make_adjuster(self.hypothesis, phi_j, self.profile)
+
             solver = Thermal_Solver(
                 nx=nx,
                 thickness=initial_thickness,
@@ -108,11 +121,7 @@ class AxialSolver2D:
                 rannacher_steps=rannacher_steps,
                 use_convection=use_convection,
                 physics_params=col_params,
-            )
-
-            # Smooth convection ramp for cold columns
-            solver.convection_ramp = self._convection_ramp_factor(
-                lat_vals['T_surf']
+                convection_adjuster=adjuster,
             )
 
             self.columns.append(solver)
@@ -124,28 +133,6 @@ class AxialSolver2D:
     def get_latitudes_deg(self) -> npt.NDArray[np.float64]:
         """Returns latitude grid in degrees."""
         return np.degrees(self.latitudes)
-
-    @staticmethod
-    def _convection_ramp_factor(
-        T_surf: float,
-        T_low: float = 60.0,
-        T_high: float = 80.0,
-    ) -> float:
-        """
-        Smooth sigmoid ramp for convection strength based on surface temperature.
-
-        Returns 0 for T_surf <= T_low (pure conduction),
-                1 for T_surf >= T_high (full convection),
-                smooth blend in between.
-
-        Uses a smoothstep (Hermite) interpolation for C1 continuity.
-        """
-        if T_surf <= T_low:
-            return 0.0
-        if T_surf >= T_high:
-            return 1.0
-        t = (T_surf - T_low) / (T_high - T_low)
-        return t * t * (3.0 - 2.0 * t)  # smoothstep
 
     def _lateral_diffusion_step(self) -> None:
         """
@@ -223,16 +210,85 @@ class AxialSolver2D:
         for j in range(self.n_lat):
             self.columns[j].T += dT[j, :]
 
+    def _lateral_diffusion_step_implicit(self) -> None:
+        """
+        Implicit lateral heat diffusion between columns.
+
+        Solves  (I - dt·L_lat) T_new = T_old  per radial level,
+        where L_lat is the geographic-latitude diffusion operator.
+        Unconditionally stable — no CFL constraint on the lateral step.
+
+        Same physics as the explicit method: L'Hopital correction at the
+        pole, Neumann (dT/dphi = 0) at equator and pole.  The only
+        difference is time integration: backward Euler instead of
+        forward Euler.
+        """
+        if self.n_lat < 3:
+            return
+
+        R = Planetary.RADIUS
+        dphi = self.dphi
+        _, dt_eff = self.columns[0]._get_theta_and_dt()
+
+        # Build 2D temperature array: shape (n_lat, nx)
+        T_2d = np.array([col.T for col in self.columns])
+
+        # Metric factors
+        cos_phi = np.cos(self.latitudes)
+        phi_half = (self.latitudes[:-1] + self.latitudes[1:]) / 2
+        cos_half = np.cos(phi_half)
+
+        # Per-column diffusion coefficient: alpha_j = k·dt / (rho·cp·R²·dphi²)
+        alpha = np.array([
+            float(Thermal.conductivity(np.mean(col.T))) * dt_eff
+            / (float(Thermal.density_ice(np.mean(col.T))) * Thermal.SPECIFIC_HEAT
+               * R**2 * dphi**2)
+            for col in self.columns
+        ])
+
+        # Assemble tridiagonal coefficients for (I - dt·L) T_new = T_old
+        n = self.n_lat
+        lower = np.zeros(n - 1)
+        main = np.ones(n)
+        upper = np.zeros(n - 1)
+
+        # Interior columns: j = 1 .. n-2
+        for j in range(1, n - 1):
+            c_minus = alpha[j] * cos_half[j - 1] / cos_phi[j]
+            c_plus = alpha[j] * cos_half[j] / cos_phi[j]
+            main[j] += c_minus + c_plus
+            lower[j - 1] -= c_minus
+            upper[j] -= c_plus
+
+        # Equator (j=0): dT/dphi = 0 => no flux from below
+        c_plus_eq = alpha[0] * cos_half[0] / cos_phi[0]
+        main[0] += c_plus_eq
+        upper[0] -= c_plus_eq
+
+        # Pole (j=n-1): L'Hopital limit => coefficient is 4·alpha
+        main[n - 1] += 4.0 * alpha[n - 1]
+        lower[n - 2] -= 4.0 * alpha[n - 1]
+
+        # Pack into banded form for scipy.linalg.solve_banded
+        ab = np.zeros((3, n))
+        ab[0, 1:] = upper
+        ab[1, :] = main
+        ab[2, :-1] = lower
+
+        # Solve per radial level (same matrix, different RHS)
+        for i in range(self.nx):
+            T_2d[:, i] = solve_banded((1, 1), ab, T_2d[:, i])
+
+        # Writeback
+        for j in range(n):
+            self.columns[j].T = T_2d[j, :]
+
     def solve_step(self, q_ocean_profile: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """
         Advance all columns by one time step using operator splitting.
 
         1. Radial step: each column solves its 1D heat equation independently
-        2. Lateral step: explicit lateral diffusion between columns
-
-        Includes a robustness guard: if a column's thickness change exceeds
-        20% per step or produces NaN temperatures, the step is rolled back
-        and the column is held at its previous state.
+        2. Lateral step: diffusion between columns (implicit or explicit)
 
         Args:
             q_ocean_profile: Ocean heat flux at each latitude (W/m^2), shape (n_lat,)
@@ -247,14 +303,17 @@ class AxialSolver2D:
             velocities[j] = col.solve_step(q_ocean_profile[j])
 
         # Step 2: Lateral diffusion coupling
-        self._lateral_diffusion_step()
+        if self.lateral_method == 'implicit':
+            self._lateral_diffusion_step_implicit()
+        else:
+            self._lateral_diffusion_step()
 
         return velocities
 
     def run_to_equilibrium(
         self,
         threshold: float = 1e-12,
-        max_steps: int = 500,
+        max_steps: int = 1500,
         log_interval: int = 100,
         verbose: bool = True,
     ) -> Dict[str, Any]:
@@ -315,6 +374,9 @@ class AxialSolver2D:
                 diagnostics.append({
                     'D_cond_km': col.H / 1000.0,
                     'D_conv_km': 0.0,
+                    'T_c': 0.0,
+                    'Ti': 0.0,
+                    'z_c_km': col.H / 1000.0,
                     'Ra': 0.0,
                     'Nu': 1.0,
                     'Nu_raw': 1.0,
