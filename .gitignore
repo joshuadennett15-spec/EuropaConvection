@@ -1,0 +1,28 @@
+# Local tooling
+.claude/worktrees/
+.idea/
+
+# Python cache/test output
+**/__pycache__/
+**/.pytest_cache/
+**/*.py[cod]
+
+# Scratch and generated analysis output
+results/
+tmp_eq_depleted_stats/
+docs/research/*.aux
+docs/research/*.log
+docs/research/*.out
+docs/research/*.toc
+
+# Europa2D generated products
+Europa2D/results/*.npz
+Europa2D/results/**/*.npz
+Europa2D/figures/**/*.png
+Europa2D/figures/**/*.pdf
+
+
+# Debug / temp output
+debug.log
+pytest_output.txt
+attrib_out.txt

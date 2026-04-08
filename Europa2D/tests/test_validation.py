@@ -70,9 +70,9 @@ class TestValidationVs1D:
 
 
 def test_single_column_2d_matches_1d():
-    """2D solver with n_lat=1, uniform forcing must match 1D solver."""
+    """2D solver with n_lat=1, uniform forcing using the default warm equator."""
     profile = LatitudeProfile(
-        T_eq=96.0, T_floor=46.0,
+        T_eq=110.0, T_floor=46.0,
         epsilon_eq=6e-6, epsilon_pole=6e-6,
         q_ocean_mean=0.02,
         ocean_pattern="uniform",
@@ -80,18 +80,18 @@ def test_single_column_2d_matches_1d():
     solver = AxialSolver2D(
         n_lat=1,
         nx=31,
-        dt=5e12,
+        dt=1e12,
         latitude_profile=profile,
         use_convection=True,
     )
-    result = solver.run_to_equilibrium(threshold=1e-12, max_steps=500, verbose=False)
+    result = solver.run_to_equilibrium(threshold=1e-12, max_steps=1500, verbose=False)
     H_2d = result["H_profile_km"][0]
 
     # Sanity bounds
     assert H_2d > 5.0, f"Unphysical: shell too thin ({H_2d:.1f} km)"
     assert H_2d < 80.0, f"Unphysical: shell too thick ({H_2d:.1f} km)"
     # Record the exact value for future regression
-    print(f"Cold variant (96/46 K): H_2d = {H_2d:.2f} km")
+    print(f"Default variant (110/46 K): H_2d = {H_2d:.2f} km")
 
 
 def test_single_column_2d_warm_variant():
@@ -105,11 +105,11 @@ def test_single_column_2d_warm_variant():
     solver = AxialSolver2D(
         n_lat=1,
         nx=31,
-        dt=5e12,
+        dt=1e12,
         latitude_profile=profile,
         use_convection=True,
     )
-    result = solver.run_to_equilibrium(threshold=1e-12, max_steps=500, verbose=False)
+    result = solver.run_to_equilibrium(threshold=1e-12, max_steps=1500, verbose=False)
     H_warm = result["H_profile_km"][0]
 
     assert H_warm > 5.0, f"Unphysical: shell too thin ({H_warm:.1f} km)"

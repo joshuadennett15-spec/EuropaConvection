@@ -28,6 +28,16 @@
       "config_overrides": {}
     },
     {
+      "name": "ra_crit_150",
+      "hypothesis": {"mechanism": "ra_onset", "params": {"ra_crit_override": 150}},
+      "config_overrides": {}
+    },
+    {
+      "name": "ra_crit_50",
+      "hypothesis": {"mechanism": "ra_onset", "params": {"ra_crit_override": 50}},
+      "config_overrides": {}
+    },
+    {
       "name": "ra_crit_800",
       "hypothesis": {"mechanism": "ra_onset", "params": {"ra_crit_override": 800}},
       "config_overrides": {}

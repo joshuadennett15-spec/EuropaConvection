@@ -1,8 +1,11 @@
 """
 Single deterministic 2D axisymmetric runs for literature-backed scenarios.
 
-By default this script runs the core literature presets and saves
-scenario-specific figures for each case.
+Produces two publication-quality figures per scenario:
+  1. Three-panel thickness / forcing / shell-state profile
+  2. Latitude--depth temperature cross-section
+
+By default runs the core literature presets with the corrected dt=1e12.
 """
 import argparse
 import os
@@ -15,8 +18,10 @@ sys.path.insert(0, os.path.join(_PROJECT_DIR, "src"))
 import src  # triggers import path setup
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 
+from constants import Thermal
 from axial_solver import AxialSolver2D
 from literature_scenarios import DEFAULT_SCENARIO, SCENARIOS, get_scenario, list_scenarios
 from profile_diagnostics import (
@@ -26,6 +31,7 @@ from profile_diagnostics import (
     format_diagnostic_lines,
     ocean_pattern_metadata,
 )
+from pub_style import apply_style, PAL, label_panel, save_fig, add_minor_gridlines, figsize_double
 
 
 FIXED_PARAMS = {
@@ -42,11 +48,15 @@ FIXED_PARAMS = {
     "T_phi": 150.0,
 }
 
+# Latitude-band shading colours (colorblind-safe, subtle)
+_BAND_EQ_COLOR = PAL.alpha(PAL.CYAN, 0.08)
+_BAND_PO_COLOR = PAL.alpha(PAL.RED, 0.08)
 
-def _shade_latitude_bands(ax) -> None:
-    """Highlight the latitude bands used in the scientific summary."""
-    ax.axvspan(*LOW_LAT_BAND, color="tab:blue", alpha=0.06)
-    ax.axvspan(*HIGH_LAT_BAND, color="tab:red", alpha=0.06)
+
+def _shade_bands(ax) -> None:
+    """Add subtle shading for equatorial and polar diagnostic bands."""
+    ax.axvspan(*LOW_LAT_BAND, color=_BAND_EQ_COLOR, zorder=0)
+    ax.axvspan(*HIGH_LAT_BAND, color=_BAND_PO_COLOR, zorder=0)
 
 
 def _plot_thickness_profile(
@@ -56,7 +66,9 @@ def _plot_thickness_profile(
     solver_diagnostics: list[dict],
     output_path: str,
 ) -> None:
-    """Save a multi-panel thickness figure with forcing and shell diagnostics."""
+    """Publication three-panel figure: thickness, forcing, shell state."""
+    apply_style()
+
     nu_profile = np.array([d["Nu"] for d in solver_diagnostics], dtype=float)
     lid_fraction = np.array([d["lid_fraction"] for d in solver_diagnostics], dtype=float)
     diagnostics = compute_profile_diagnostics(
@@ -73,136 +85,115 @@ def _plot_thickness_profile(
     epsilon = np.array([profile.tidal_strain(val) for val in phi], dtype=float)
 
     fig, axes = plt.subplots(
-        3,
-        1,
-        figsize=(11, 11),
+        3, 1,
+        figsize=(figsize_double(aspect=0.65)[0], 7.2),
         sharex=True,
-        gridspec_kw={"height_ratios": [1.6, 1.2, 1.0]},
+        gridspec_kw={"height_ratios": [1.6, 1.0, 1.0], "hspace": 0.08},
     )
-    ax_h, ax_forcing, ax_state = axes
+    ax_h, ax_f, ax_s = axes
 
     for ax in axes:
-        _shade_latitude_bands(ax)
-        ax.grid(True, alpha=0.25)
+        _shade_bands(ax)
+        add_minor_gridlines(ax)
         ax.set_xlim(0, 90)
+        ax.xaxis.set_major_locator(mticker.MultipleLocator(15))
 
+    # ── Panel (a): Thickness profile ─────────────────────────────────────
     ax_h.plot(
-        latitudes_deg,
-        thickness_km,
-        color="tab:blue",
-        marker="o",
-        linewidth=2.2,
-        markersize=4.5,
+        latitudes_deg, thickness_km,
+        color=PAL.BLUE, lw=1.6, marker="o", ms=3, zorder=3,
         label="Equilibrium thickness",
     )
     ax_h.plot(
-        latitudes_deg[-1],
-        thickness_km[-1],
-        marker="o",
-        markersize=7,
-        markerfacecolor="white",
-        markeredgecolor="tab:blue",
-        markeredgewidth=1.5,
-        linestyle="None",
-        label="90 deg boundary node",
+        latitudes_deg[-1], thickness_km[-1],
+        marker="o", ms=5, mfc="white", mec=PAL.BLUE, mew=1.2,
+        ls="None", zorder=4,
+        label=r"90$\degree$ boundary node",
     )
     ax_h.hlines(
         diagnostics.low_band_mean_km,
-        LOW_LAT_BAND[0],
-        LOW_LAT_BAND[1],
-        color="tab:cyan",
-        linestyle="--",
-        linewidth=2,
-        label="0-10 deg area mean",
+        LOW_LAT_BAND[0], LOW_LAT_BAND[1],
+        color=PAL.CYAN, ls="--", lw=1.2,
+        label=r"$\langle H \rangle_{0\text{--}10\degree}$",
     )
     ax_h.hlines(
         diagnostics.high_band_mean_km,
-        HIGH_LAT_BAND[0],
-        HIGH_LAT_BAND[1],
-        color="tab:orange",
-        linestyle="--",
-        linewidth=2,
-        label="80-90 deg area mean",
+        HIGH_LAT_BAND[0], HIGH_LAT_BAND[1],
+        color=PAL.RED, ls="--", lw=1.2,
+        label=r"$\langle H \rangle_{80\text{--}90\degree}$",
     )
     ax_h.scatter(
-        diagnostics.min_latitude_deg,
-        diagnostics.min_thickness_km,
-        color="black",
-        zorder=5,
-        label="Minimum thickness",
+        diagnostics.min_latitude_deg, diagnostics.min_thickness_km,
+        marker="v", s=30, color=PAL.BLACK, zorder=5,
+        label=f"Min H = {diagnostics.min_thickness_km:.1f} km",
     )
-    ax_h.set_ylabel("Ice Shell Thickness (km)")
-    ax_h.set_title(
-        f"Europa 2D Shell Profile: {metadata.title} ({metadata.citation})",
-        fontsize=13,
-    )
-    ax_h.legend(loc="upper left", fontsize=9)
+    ax_h.set_ylabel("Ice shell thickness (km)")
+    ax_h.legend(loc="upper left", ncol=2)
+    label_panel(ax_h, "a")
 
-    diag_lines = format_diagnostic_lines(metadata, diagnostics)
+    # Compact annotation box
+    ann = (
+        f"{metadata.title}\n"
+        f"{metadata.citation}\n"
+        f"$\\Delta H_{{\\mathrm{{high-low}}}}$ = {diagnostics.high_minus_low_km:+.1f} km\n"
+        f"$q^*$ = {diagnostics.q_star:.3f}   "
+        f"$q_{{\\mathrm{{pole}}}}/q_{{\\mathrm{{eq}}}}$ = {diagnostics.q_ratio_pole_over_eq:.2f}"
+    )
     ax_h.text(
-        0.985,
-        0.97,
-        "\n".join(diag_lines),
-        transform=ax_h.transAxes,
-        ha="right",
-        va="top",
-        fontsize=9,
-        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.9, "edgecolor": "0.7"},
+        0.98, 0.97, ann,
+        transform=ax_h.transAxes, ha="right", va="top",
+        fontsize=6.5, fontfamily="monospace",
+        bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.9, ec="#bbb", lw=0.4),
     )
 
-    ax_forcing.plot(latitudes_deg, t_surf / diagnostics.ts_eq_k, color="tab:red", linewidth=2, label="T_surf / T_eq")
-    ax_forcing.plot(
-        latitudes_deg,
-        q_ocean / profile.q_ocean_mean,
-        color="tab:purple",
-        linewidth=2,
-        label="q_ocean / q_mean",
+    # ── Panel (b): Normalized forcing profiles ───────────────────────────
+    ax_f.plot(
+        latitudes_deg, t_surf / diagnostics.ts_eq_k,
+        color=PAL.RED, lw=1.2,
+        label=r"$T_{\mathrm{s}} / T_{\mathrm{eq}}$",
     )
-    ax_forcing.plot(
-        latitudes_deg,
-        epsilon / diagnostics.epsilon_eq,
-        color="tab:green",
-        linewidth=2,
-        label="epsilon_0 / epsilon_eq",
+    ax_f.plot(
+        latitudes_deg, q_ocean / profile.q_ocean_mean,
+        color=PAL.PURPLE, lw=1.2,
+        label=r"$q_{\mathrm{ocean}} / \langle q \rangle$",
     )
-    ax_forcing.set_ylabel("Normalized Forcing")
-    ax_forcing.legend(loc="upper left", ncol=3, fontsize=9)
-    ax_forcing.set_title("Forcing profiles used by the axisymmetric shell model", fontsize=11)
+    ax_f.plot(
+        latitudes_deg, epsilon / diagnostics.epsilon_eq,
+        color=PAL.GREEN, lw=1.2,
+        label=r"$\varepsilon_0 / \varepsilon_{\mathrm{eq}}$",
+    )
+    ax_f.set_ylabel("Normalized forcing")
+    ax_f.legend(loc="center left", ncol=3)
+    ax_f.set_ylim(bottom=0)
+    label_panel(ax_f, "b")
 
-    ax_state.plot(latitudes_deg, nu_profile, color="tab:brown", linewidth=2, label="Effective Nu")
-    ax_state.set_ylabel("Effective Nu")
-    ax_state.set_xlabel("Latitude (degrees)")
-    ax_state.set_ylim(bottom=0.95)
-    ax_state_right = ax_state.twinx()
-    ax_state_right.plot(
-        latitudes_deg,
-        lid_fraction,
-        color="tab:olive",
-        linewidth=2,
-        linestyle="--",
-        label="Lid fraction",
+    # ── Panel (c): Shell-state diagnostics ───────────────────────────────
+    ln1 = ax_s.plot(
+        latitudes_deg, nu_profile,
+        color=PAL.ORANGE, lw=1.2,
+        label="Effective Nu",
     )
-    ax_state_right.set_ylabel("D_cond / H")
-    ax_state_right.set_ylim(0.0, 1.05)
-    handles_left, labels_left = ax_state.get_legend_handles_labels()
-    handles_right, labels_right = ax_state_right.get_legend_handles_labels()
-    ax_state.legend(handles_left + handles_right, labels_left + labels_right, loc="upper left", fontsize=9)
-    ax_state.set_title("Shell-state diagnostics", fontsize=11)
+    ax_s.set_ylabel("Effective Nu")
+    ax_s.set_xlabel(r"Latitude ($\degree$)")
+    ax_s.set_ylim(bottom=0.9)
 
-    fig.text(
-        0.5,
-        0.015,
-        (
-            f"{metadata.summary} {metadata.caution} "
-            f"Reference: {metadata.reference_url}"
-        ),
-        ha="center",
-        va="bottom",
-        fontsize=9,
+    ax_r = ax_s.twinx()
+    ln2 = ax_r.plot(
+        latitudes_deg, lid_fraction,
+        color=PAL.CYAN, lw=1.0, ls="--",
+        label=r"$D_{\mathrm{cond}} / H$",
     )
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
-    fig.savefig(output_path, dpi=160, bbox_inches="tight")
-    plt.close(fig)
+    ax_r.set_ylabel(r"$D_{\mathrm{cond}} / H$")
+    ax_r.set_ylim(0.0, 1.05)
+    ax_r.spines["right"].set_visible(True)
+    ax_r.spines["right"].set_linewidth(0.4)
+
+    lines = ln1 + ln2
+    ax_s.legend(lines, [l.get_label() for l in lines], loc="upper left")
+    label_panel(ax_s, "c")
+
+    save_fig(fig, os.path.splitext(os.path.basename(output_path))[0],
+             os.path.dirname(output_path), formats=("png", "pdf"))
 
 
 def _plot_temperature_cross_section(
@@ -213,7 +204,9 @@ def _plot_temperature_cross_section(
     solver_diagnostics: list[dict],
     output_path: str,
 ) -> None:
-    """Save a physical-depth temperature cross-section with interpretation notes."""
+    """Publication latitude--depth temperature cross-section."""
+    apply_style()
+
     diagnostics = compute_profile_diagnostics(
         latitudes_deg=latitudes_deg,
         thickness_km=thickness_km,
@@ -229,48 +222,62 @@ def _plot_temperature_cross_section(
         dtype=float,
     ).T
 
-    fig, ax = plt.subplots(figsize=(10.5, 5.5))
+    fig, ax = plt.subplots(figsize=figsize_double(aspect=0.45))
+
     t_plot = np.clip(temperature_2d.T, 40.0, 275.0)
     mesh = ax.pcolormesh(
-        lat_grid,
-        depth_grid_km,
-        t_plot,
-        shading="auto",
-        cmap="inferno",
-        vmin=40,
-        vmax=275,
+        lat_grid, depth_grid_km, t_plot,
+        shading="gouraud", cmap="inferno", vmin=40, vmax=275, rasterized=True,
     )
-    _shade_latitude_bands(ax)
-    ax.plot(latitudes_deg, thickness_km, color="white", linewidth=1.5, alpha=0.9)
+
+    # Ice--ocean interface
+    ax.plot(
+        latitudes_deg, thickness_km,
+        color="white", lw=1.0, alpha=0.85, zorder=3,
+    )
+
+    # Conductive lid base (where T = T_c)
+    T_c_arr = np.array([d.get("T_c", 0.0) for d in solver_diagnostics], dtype=float)
+    z_c_km = np.array([d.get("z_c_km", 0.0) for d in solver_diagnostics], dtype=float)
+    conv_mask = z_c_km > 0
+    if np.any(conv_mask):
+        ax.plot(
+            latitudes_deg[conv_mask], z_c_km[conv_mask],
+            color=PAL.CYAN, lw=0.8, ls="--", alpha=0.8, zorder=3,
+            label=r"$z_c$ (lid base)",
+        )
+
     ax.set_xlim(0, 90)
-    ax.set_xlabel("Latitude (degrees)")
-    ax.set_ylabel("Depth Below Surface (km)")
-    ax.set_title(f"Temperature cross-section: {metadata.title}", fontsize=12)
+    ax.xaxis.set_major_locator(mticker.MultipleLocator(15))
+    ax.set_xlabel(r"Latitude ($\degree$)")
+    ax.set_ylabel("Depth below surface (km)")
     ax.invert_yaxis()
-    cbar = fig.colorbar(mesh, ax=ax, label="Temperature (K)")
-    cbar.ax.tick_params(labelsize=9)
 
+    cbar = fig.colorbar(mesh, ax=ax, pad=0.02, aspect=25)
+    cbar.set_label("Temperature (K)")
+
+    # Annotation
+    ann = (
+        f"{metadata.title} ({metadata.citation})\n"
+        f"$H_{{\\min}}$ = {diagnostics.min_thickness_km:.1f} km "
+        f"at {diagnostics.min_latitude_deg:.0f}$\\degree$     "
+        f"$\\Delta H$ = {diagnostics.high_minus_low_km:+.1f} km\n"
+        f"max Nu = {diagnostics.max_nu:.1f}     "
+        f"$q^*$ = {diagnostics.q_star:.3f}"
+    )
     ax.text(
-        0.985,
-        0.03,
-        (
-            f"{metadata.citation}\n"
-            f"H_min = {diagnostics.min_thickness_km:.2f} km at {diagnostics.min_latitude_deg:.1f} deg\n"
-            f"H(80-90 deg) - H(0-10 deg) = {diagnostics.high_minus_low_km:+.2f} km\n"
-            f"max Nu = {diagnostics.max_nu:.2f}\n"
-            "90 deg is a symmetry boundary node"
-        ),
-        transform=ax.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=9,
-        color="white",
-        bbox={"boxstyle": "round", "facecolor": "black", "alpha": 0.45, "edgecolor": "0.7"},
+        0.98, 0.04, ann,
+        transform=ax.transAxes, ha="right", va="bottom",
+        fontsize=6, color="white", fontfamily="monospace",
+        bbox=dict(boxstyle="round,pad=0.3", fc="black", alpha=0.5, ec="0.6", lw=0.3),
     )
 
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=160, bbox_inches="tight")
-    plt.close(fig)
+    if np.any(conv_mask):
+        ax.legend(loc="lower left", fontsize=6, labelcolor="white",
+                  facecolor="black", framealpha=0.4, edgecolor="0.6")
+
+    save_fig(fig, os.path.splitext(os.path.basename(output_path))[0],
+             os.path.dirname(output_path), formats=("png", "pdf"))
 
 
 def run_single_scenario(
@@ -285,10 +292,11 @@ def run_single_scenario(
     """Run one deterministic literature scenario and save its figures."""
     scenario = get_scenario(scenario_name)
     profile = scenario.build_profile(
-        T_eq=96.0,
+        T_eq=Thermal.SURFACE_TEMP_MEAN,
         epsilon_eq=6e-6,
         epsilon_pole=1.2e-5,
         q_ocean_mean=q_ocean_mean,
+        T_floor=50.0,
     )
 
     print(f"\n=== {scenario.name}: {scenario.citation} ===")
@@ -336,8 +344,6 @@ def run_single_scenario(
         cross_section_path,
     )
 
-    print(f"Saved figure to {thickness_path}")
-    print(f"Saved figure to {cross_section_path}")
     return {
         "scenario": scenario.name,
         "thickness_path": thickness_path,
@@ -361,22 +367,22 @@ def run_benchmark_suite() -> None:
     for scenario_name in scenario_names:
         scenario = SCENARIOS[scenario_name]
         profile = scenario.build_profile(
-            T_eq=96.0,
+            T_eq=Thermal.SURFACE_TEMP_MEAN,
             epsilon_eq=6e-6,
             epsilon_pole=1.2e-5,
             q_ocean_mean=0.02,
-            T_floor=46.0,
+            T_floor=50.0,
         )
 
         solver = AxialSolver2D(
             n_lat=37,
             nx=31,
-            dt=5e12,
+            dt=1e12,
             latitude_profile=profile,
             use_convection=True,
         )
 
-        result = solver.run_to_equilibrium(threshold=1e-12, max_steps=500)
+        result = solver.run_to_equilibrium(threshold=1e-12, max_steps=1500)
 
         latitudes_deg = result["latitudes_deg"]
         thickness_km = result["H_profile_km"]
@@ -407,8 +413,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-lat", type=int, default=37, help="Number of latitude columns.")
     parser.add_argument("--nx", type=int, default=31, help="Radial nodes per column.")
-    parser.add_argument("--dt", type=float, default=5e12, help="Time step in seconds.")
-    parser.add_argument("--max-steps", type=int, default=500, help="Maximum number of time steps.")
+    parser.add_argument("--dt", type=float, default=1e12, help="Time step in seconds.")
+    parser.add_argument("--max-steps", type=int, default=1500, help="Maximum number of time steps.")
     return parser.parse_args()
 
 

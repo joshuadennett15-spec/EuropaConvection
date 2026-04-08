@@ -27,14 +27,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42, help="Base random seed.")
     parser.add_argument("--n-lat", type=int, default=37, help="Number of latitude columns.")
     parser.add_argument("--nx", type=int, default=31, help="Radial nodes per column.")
-    parser.add_argument("--dt", type=float, default=5e12, help="Time step in seconds.")
-    parser.add_argument("--max-steps", type=int, default=500, help="Maximum solver steps per sample.")
+    parser.add_argument("--dt", type=float, default=1e12, help="Time step in seconds.")
+    parser.add_argument("--max-steps", type=int, default=1500, help="Maximum solver steps per sample.")
     parser.add_argument(
         "--n-workers",
         type=int,
         default=max(1, mp.cpu_count() - 1),
         help="Number of worker processes.",
     )
+    parser.add_argument("--q-tidal-scale", type=float, default=1.20, help="Scale factor applied to ocean heat flux.")
     parser.add_argument(
         "--grain-mode",
         choices=["global", "strain"],
@@ -55,6 +56,7 @@ def run_mc_scenario(
     dt: float,
     max_steps: int,
     grain_latitude_mode: str = "global",
+    q_tidal_scale: float = 1.20,
 ) -> str:
     """Run one Monte Carlo scenario and return the result path."""
     scenario = get_scenario(scenario_name)
@@ -75,6 +77,7 @@ def run_mc_scenario(
         ocean_pattern=scenario.ocean_pattern,
         q_star=scenario.q_star if scenario.q_star > 0 else None,
         grain_latitude_mode=grain_latitude_mode,
+        q_tidal_scale=q_tidal_scale,
     )
     results = runner.run()
 

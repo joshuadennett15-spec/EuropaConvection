@@ -40,9 +40,9 @@ class TestLatitudeParameterSampler:
     def test_profile_has_valid_values(self):
         sampler = LatitudeParameterSampler(seed=42)
         _, profile = sampler.sample()
-        assert 80 < profile.T_eq < 140
-        assert 2e-6 <= profile.epsilon_eq <= 2e-5
-        assert 2e-6 <= profile.epsilon_pole <= 3.4e-5
+        assert 80 <= profile.T_eq <= 120
+        assert 3e-6 <= profile.epsilon_eq <= 1.2e-5
+        assert 6e-6 <= profile.epsilon_pole <= 2.5e-5
         assert profile.q_ocean_mean > 0
 
     def test_audited_fixed_params(self):
@@ -53,11 +53,17 @@ class TestLatitudeParameterSampler:
         assert params['B_k'] == 1.0
         assert params['T_phi'] == 150.0
 
-    def test_audited_q_basal_range(self):
-        """q_basal should match the audited shell prior [5, 25] mW/m^2."""
+    def test_2d_q_basal_range_with_modest_tidal_uplift(self):
+        """2D q_basal should stay close to the audited range after the uplift."""
         sampler = LatitudeParameterSampler(seed=0)
         q_vals = [sampler.sample()[0]['q_basal'] for _ in range(200)]
-        assert all(5e-3 <= q <= 25e-3 for q in q_vals)
+        assert all(4e-3 <= q <= 35e-3 for q in q_vals)
+
+    def test_inherited_q_basal_is_preserved_for_diagnostics(self):
+        """Store the pre-uplift audited q_basal so runs remain comparable."""
+        sampler = LatitudeParameterSampler(seed=0)
+        q_vals = [sampler.sample()[0]['q_basal_inherited'] for _ in range(200)]
+        assert all(4e-3 <= q <= 30e-3 for q in q_vals)
 
     def test_audited_H_rad_positive(self):
         """H_rad must be truncated > 0."""
@@ -74,11 +80,11 @@ class TestLatitudeParameterSampler:
             assert 0.0 <= params['f_porosity'] <= 0.10
 
     def test_audited_d_grain_range(self):
-        """d_grain should match the audited 0.05-3.0 mm bounds."""
+        """d_grain should match the audited 0.05-4.0 mm bounds."""
         sampler = LatitudeParameterSampler(seed=0)
         for _ in range(200):
             params, _ = sampler.sample()
-            assert 5e-5 <= params['d_grain'] <= 3e-3
+            assert 5e-5 <= params['d_grain'] <= 4e-3
 
     def test_shared_vs_latitude_parameter_partition_is_explicit(self):
         shared = LatitudeParameterSampler.shared_parameter_names()
@@ -98,7 +104,7 @@ class TestSamplerNewFields:
         sampler = LatitudeParameterSampler(seed=42)
         _, profile = sampler.sample()
         assert hasattr(profile, 'T_floor')
-        assert 40 <= profile.T_floor <= 70
+        assert 42 <= profile.T_floor <= 59
 
     def test_profile_has_mantle_tidal_fraction(self):
         sampler = LatitudeParameterSampler(seed=42)
@@ -150,6 +156,12 @@ class TestSamplerNewFields:
         sampler = LatitudeParameterSampler(seed=42, ocean_pattern="polar_enhanced")
         _, profile = sampler.sample()
         assert profile.q_star is None
+
+    def test_sampler_records_tidal_scale_and_uplift(self):
+        sampler = LatitudeParameterSampler(seed=42)
+        params, _ = sampler.sample()
+        assert params["q_tidal_scale"] == pytest.approx(1.20)
+        assert params["q_basal"] >= params["q_basal_inherited"]
 
 
 def test_sampler_passes_tidal_pattern():

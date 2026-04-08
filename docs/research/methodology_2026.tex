@@ -1,0 +1,803 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{multirow}
+\usepackage{siunitx}
+\usepackage{bm}
+
+\setlength{\headheight}{14pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textit{Methodology}}
+\lhead{\textit{Europa Ice Shell Thermal Model}}
+\cfoot{\thepage}
+
+\titleformat{\section}{\Large\bfseries}{}{0em}{}
+\titleformat{\subsection}{\large\bfseries}{}{0em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\itshape}{}{0em}{}
+
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\pp}{\partial}
+\newcommand{\Ra}{\mathrm{Ra}}
+\newcommand{\Nu}{\mathrm{Nu}}
+
+\title{\textbf{Model Methodology}\\[0.3em]
+\Large Thermal Structure and Uncertainty Quantification\\
+of Europa's Ice Shell\\[0.5em]
+\large\textit{Full Mathematical Description}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\tableofcontents
+\newpage
+
+%======================================================================
+\section{Overview}
+%======================================================================
+
+This chapter presents the complete mathematical framework for modelling
+the thermal structure of Europa's ice shell. The model comprises five
+coupled components:
+
+\begin{enumerate}[leftmargin=2em]
+\item A \textbf{1D transient thermal solver} for the radial temperature
+      profile through the ice shell (\S\ref{sec:thermal}).
+\item A \textbf{rheological model} coupling ice viscosity to temperature,
+      grain size, and tidal forcing (\S\ref{sec:rheology}).
+\item A \textbf{parameterised stagnant-lid convection scheme} that
+      partitions the shell into a conductive lid and convective sublayer
+      (\S\ref{sec:convection}).
+\item A \textbf{2D latitude-dependent extension} that couples independent
+      radial columns through latitude-varying boundary conditions
+      (\S\ref{sec:2d}).
+\item A \textbf{Monte Carlo uncertainty quantification framework} with
+      Bayesian observational constraining (\S\ref{sec:mc}).
+\end{enumerate}
+
+%======================================================================
+\section{Thermal Solver}
+\label{sec:thermal}
+%======================================================================
+
+\subsection{Governing Equation}
+
+The model solves the one-dimensional transient heat conduction equation
+with volumetric tidal heating:
+\begin{equation}
+\rho(T)\, c_p(T)\, \frac{\pp T}{\pp t}
+  = \frac{1}{\mathcal{G}}\,\frac{\pp}{\pp z}
+    \left(\mathcal{G}\, k(T)\, \frac{\pp T}{\pp z}\right)
+  + q_{\mathrm{tidal}}(T)
+\label{eq:heat}
+\end{equation}
+where $z$ is depth measured from the surface, $T(z,t)$ is temperature,
+and $\mathcal{G}$ is a geometric factor: $\mathcal{G} = 1$ in Cartesian
+coordinates (thin shells, $H < \SI{30}{\kilo\metre}$) or
+$\mathcal{G} = r^2$ in spherical coordinates (thick shells,
+$H \geq \SI{30}{\kilo\metre}$), where $r = R_p - z$ and
+$R_p = \SI{1561}{\kilo\metre}$ is Europa's radius.
+
+\subsection{Material Properties}
+
+\subsubsection{Thermal conductivity}
+
+The thermal conductivity of ice~I follows the Howell (2021) parameterisation:
+\begin{equation}
+k(T) = \frac{567}{T} \quad \si{\watt\per\metre\per\kelvin}
+\label{eq:conductivity}
+\end{equation}
+This inverse dependence on temperature is the single most important
+relationship in the model: it produces a factor-of-four conductivity
+contrast between the cold polar surface ($T \sim \SI{50}{\kelvin}$,
+$k \sim \SI{11}{\watt\per\metre\per\kelvin}$) and the warm equatorial
+surface ($T \sim \SI{110}{\kelvin}$,
+$k \sim \SI{5}{\watt\per\metre\per\kelvin}$).
+
+Where near-surface porosity is present ($T < T_\phi = \SI{150}{\kelvin}$),
+the effective conductivity is reduced:
+\begin{equation}
+k_{\mathrm{eff}}(T) = k(T)\,(1 - f_{\mathrm{porosity}})
+\quad \text{for } T < T_\phi
+\label{eq:porosity}
+\end{equation}
+where $f_{\mathrm{porosity}} \in [0, 0.10]$ is the porosity fraction.
+
+\subsubsection{Density}
+
+Temperature-dependent density follows Howell (2021):
+\begin{equation}
+\rho(T) = \rho_0\left[1 + \alpha_{th}(T_m - T)\right]
+\label{eq:density}
+\end{equation}
+with reference density $\rho_0 = \SI{917}{\kilo\gram\per\metre\cubed}$
+at the melting point $T_m = \SI{273}{\kelvin}$ and thermal expansion
+coefficient $\alpha_{th} = \SI{1.6e-4}{\per\kelvin}$.
+
+\subsubsection{Specific heat capacity}
+
+The specific heat capacity follows the temperature-dependent fit of
+Giauque \& Stout (1936):
+\begin{equation}
+c_p(T) = 7.49\,T + 90.0 \quad \si{\joule\per\kilo\gram\per\kelvin}
+\label{eq:cp}
+\end{equation}
+yielding $c_p \approx \SI{839}{\joule\per\kilo\gram\per\kelvin}$ at
+$T = \SI{100}{\kelvin}$ and
+$c_p \approx \SI{2135}{\joule\per\kilo\gram\per\kelvin}$ at the
+melting point.
+
+\subsection{Boundary Conditions}
+\label{sec:bc}
+
+\subsubsection{Surface boundary condition}
+
+The surface temperature is prescribed as a Dirichlet condition:
+\begin{equation}
+T(z=0, t) = T_{\mathrm{surf}}
+\label{eq:surf_bc}
+\end{equation}
+where $T_{\mathrm{surf}}$ is drawn from the Monte Carlo prior
+distribution (\S\ref{sec:mc}) or computed from the latitude-dependent
+profile (\S\ref{sec:2d}).
+
+Alternatively, a radiative-equilibrium condition may be applied:
+\begin{equation}
+\varepsilon\,\sigma\,T_s^4
+  = (1 - a)\,Q_{\odot}(\phi)
+  + k(T_s)\left.\frac{\pp T}{\pp z}\right|_{z=0}
+\label{eq:stefan_boltzmann}
+\end{equation}
+where $\varepsilon = 0.94$ is the surface emissivity,
+$\sigma = \SI{5.67e-8}{\watt\per\metre\squared\per\kelvin\tothe{4}}$
+the Stefan--Boltzmann constant, $a = 0.64$ the Bond albedo, and
+$Q_{\odot}$ the local solar flux. This nonlinear equation is solved
+via Newton--Raphson iteration using the linearisation
+$T^4 \approx 4T_0^3 T - 3T_0^4$.
+
+\subsubsection{Basal boundary condition: Stefan condition}
+
+At the ice--ocean interface ($z = H$), the temperature is fixed at the
+pressure-dependent melting point:
+\begin{equation}
+T(z=H) = T_m(H) = 273.0 - \SI{7.4e-8}{\kelvin\per\pascal}
+  \times \rho\,g\,H
+\label{eq:melt}
+\end{equation}
+where $g = \SI{1.315}{\metre\per\second\squared}$ is Europa's surface
+gravity. For a \SI{20}{\kilo\metre} shell, $T_m \approx \SI{272.8}{\kelvin}$.
+
+The shell thickness $H$ evolves according to the Stefan condition
+governing the freezing front:
+\begin{equation}
+\frac{\dd H}{\dd t}
+  = \frac{q_{\mathrm{cond}} - q_{\mathrm{ocean}}}{\rho\, L}
+\label{eq:stefan}
+\end{equation}
+where $L = \SI{334000}{\joule\per\kilo\gram}$ is the latent heat of
+fusion, $q_{\mathrm{ocean}}$ is the heat flux delivered from the ocean
+to the base of the ice, and $q_{\mathrm{cond}}$ is the heat conducted
+upward from the base:
+\begin{equation}
+q_{\mathrm{cond}} = k(T_m)\left.\frac{\pp T}{\pp z}\right|_{z=H}
+\label{eq:qcond}
+\end{equation}
+evaluated using a second-order one-sided finite difference:
+\begin{equation}
+\left.\frac{\pp T}{\pp z}\right|_{z=H}
+  \approx \frac{3T_n - 4T_{n-1} + T_{n-2}}{2\,\Delta z}
+\label{eq:grad}
+\end{equation}
+
+If $q_{\mathrm{cond}} > q_{\mathrm{ocean}}$, the shell thickens
+(freezing); if $q_{\mathrm{cond}} < q_{\mathrm{ocean}}$, it thins
+(melting). The model is integrated to thermal equilibrium, defined as
+$|\dd H/\dd t| < \SI{e-15}{\metre\per\second}$.
+
+\subsection{Numerical Discretisation}
+\label{sec:numerics}
+
+\subsubsection{Spatial discretisation}
+
+The radial domain $[0, H]$ is divided into $n_z$ equally spaced nodes
+(default $n_z = 31$ for Monte Carlo production runs). The diffusion
+operator is discretised in flux-conservative form using harmonic-mean
+averaging of conductivity at half-nodes:
+\begin{equation}
+k_{i+1/2} = \frac{2\,k_i\,k_{i+1}}{k_i + k_{i+1}}
+\label{eq:harmonic}
+\end{equation}
+This ensures flux conservation across the conductive--convective
+interface where $k_{\mathrm{eff}}$ may jump by an order of magnitude
+when the Nusselt enhancement is applied (\S\ref{sec:convection}).
+
+\subsubsection{Time integration: Crank--Nicolson with Rannacher startup}
+
+The heat equation is advanced in time using the $\theta$-method:
+\begin{equation}
+\rho\,c_p\,\frac{T^{n+1}_i - T^n_i}{\Delta t}
+  = \theta\,\mathcal{L}[T^{n+1}]
+  + (1-\theta)\,\mathcal{L}[T^n]
+  + q_{\mathrm{tidal}}
+\label{eq:theta}
+\end{equation}
+where $\mathcal{L}$ denotes the discrete spatial diffusion operator.
+
+A Rannacher startup (Rannacher 1984) is employed: the first four
+half-steps use $\theta = 1$ (backward Euler) at $\Delta t/2$ to damp
+spurious oscillations arising from stiff initial conditions. All
+subsequent steps use $\theta = 0.5$ (Crank--Nicolson) at the full
+timestep $\Delta t = \SI{e12}{\second}$ ($\sim$31,700~years), giving
+second-order temporal accuracy.
+
+This yields a tridiagonal system at each timestep:
+\begin{equation}
+a_i\,T^{n+1}_{i-1} + b_i\,T^{n+1}_i + c_i\,T^{n+1}_{i+1} = d_i
+\label{eq:tridiag}
+\end{equation}
+solved via the Thomas algorithm in $O(n_z)$ operations.
+
+\subsubsection{Picard iteration for nonlinearity}
+
+Because $k(T)$, $\rho(T)$, $c_p(T)$, and $q_{\mathrm{tidal}}(T)$ all
+depend on temperature, the system is nonlinear. At each timestep, up to
+three Picard iterations are performed: material properties are evaluated
+at the current temperature estimate, the tridiagonal system is assembled
+and solved, and the new temperature is used to update properties.
+Convergence is declared when
+$\max_i |T^{(m+1)}_i - T^{(m)}_i| < \SI{0.01}{\kelvin}$.
+
+%======================================================================
+\section{Rheology and Tidal Dissipation}
+\label{sec:rheology}
+%======================================================================
+
+\subsection{Composite Diffusion Creep Viscosity}
+
+The viscosity of polycrystalline ice is computed from the composite
+diffusion creep law of Howell (2021), which includes both volume
+diffusion and grain-boundary diffusion:
+\begin{equation}
+\eta(T, d) = \frac{1}{2}\left[
+  \frac{42\,\Omega}{R\,T\,d^2}
+  \left(D_v(T) + \frac{\pi\,\delta}{d}\,D_b(T)\right)
+\right]^{-1}
+\label{eq:viscosity}
+\end{equation}
+where $\Omega = \SI{1.97e-5}{\metre\cubed\per\mole}$ is the molar
+volume of ice, $R = \SI{8.314}{\joule\per\mole\per\kelvin}$ the gas
+constant, $d$ the grain size, and $\delta = \SI{7.13e-10}{\metre}$
+the grain-boundary width. The diffusion coefficients follow Arrhenius
+laws:
+\begin{align}
+D_v(T) &= D_{0v}\,\exp\!\left(-\frac{Q_v}{R\,T}\right) \\
+D_b(T) &= D_{0b}\,\exp\!\left(-\frac{Q_b}{R\,T}\right)
+\label{eq:diffusion}
+\end{align}
+with parameters listed in Table~\ref{tab:rheology}. Viscosity is
+clipped to the range $[10^{12},\, 10^{25}]$~Pa\,s for numerical
+stability.
+
+\begin{table}[h]
+\centering
+\caption{Rheological parameters (Howell 2021).}
+\label{tab:rheology}
+\begin{tabular}{llrl}
+\toprule
+\textbf{Parameter} & \textbf{Symbol} & \textbf{Value} & \textbf{Unit} \\
+\midrule
+Volume diffusion prefactor  & $D_{0v}$ & $9.1 \times 10^{-4}$ & m$^2$/s \\
+Boundary diffusion prefactor & $D_{0b}$ & $8.4 \times 10^{-4}$ & m$^2$/s \\
+Volume activation energy    & $Q_v$    & 59,400 & J/mol \\
+Boundary activation energy  & $Q_b$    & 49,000 & J/mol \\
+Molar volume                & $\Omega$ & $1.97 \times 10^{-5}$ & m$^3$/mol \\
+Grain-boundary width        & $\delta$ & $7.13 \times 10^{-10}$ & m \\
+Ice shear modulus            & $\mu$    & $3.3 \times 10^{9}$ & Pa \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Tidal Heating: Maxwell Rheology}
+
+Under the Maxwell (spring-dashpot) model, volumetric tidal dissipation is:
+\begin{equation}
+q_{\mathrm{tidal}}^{\mathrm{Max}}(T) =
+  \frac{\varepsilon_0^2\,\omega^2\,\eta(T)}
+       {2\left[1 + \dfrac{\omega^2\,\eta(T)^2}{\mu^2}\right]}
+\label{eq:maxwell}
+\end{equation}
+where $\varepsilon_0$ is the tidal strain amplitude, $\omega =
+\SI{2.047e-5}{\radian\per\second}$ is Europa's orbital frequency,
+and $\mu = \SI{3.3e9}{\pascal}$ is the ice shear modulus. The factor
+of $1/2$ arises from time-averaging $\sin^2(\omega t)$ over one
+orbital period.
+
+Maxwell dissipation peaks sharply at $\omega\tau = 1$ where $\tau =
+\eta/\mu$ is the Maxwell relaxation time. Only a narrow temperature
+band satisfies this resonance condition; ice that is too cold
+($\omega\tau \gg 1$, elastic response) or too warm
+($\omega\tau \ll 1$, viscous flow) dissipates negligibly.
+
+\subsection{Tidal Heating: Andrade Rheology}
+
+The Andrade model (McCarthy et al.\ 2011; Renaud \& Henning 2018)
+incorporates transient creep from sub-grain dislocation motion and
+grain-boundary sliding, producing broadband dissipation absent from
+the Maxwell model.
+
+The complex compliance is:
+\begin{equation}
+J^*(\omega) = \underbrace{\frac{1}{\mu}}_{\text{elastic}}
+  + \underbrace{\frac{\Gamma(1+\alpha)}{\mu}\,
+    (\omega\tau\zeta)^{-\alpha}\,
+    e^{-i\alpha\pi/2}}_{\text{Andrade transient creep}}
+  - \underbrace{\frac{i}{\omega\,\eta}}_{\text{viscous}}
+\label{eq:andrade_compliance}
+\end{equation}
+where $\alpha = 0.2$ is the Andrade creep exponent, $\zeta = 1.0$
+is the normalisation factor, $\tau = \eta/\mu$ is the relaxation time,
+and $\Gamma$ is the gamma function. The real and imaginary parts are:
+\begin{align}
+J_{\mathrm{re}} &= \frac{1}{\mu} + \frac{\Gamma(1+\alpha)}{\mu}\,
+  (\omega\tau\zeta)^{-\alpha}\,\cos\!\left(\frac{\alpha\pi}{2}\right)
+\label{eq:Jre} \\
+J_{\mathrm{im}} &= \frac{1}{\omega\,\eta} + \frac{\Gamma(1+\alpha)}{\mu}\,
+  (\omega\tau\zeta)^{-\alpha}\,\sin\!\left(\frac{\alpha\pi}{2}\right)
+\label{eq:Jim}
+\end{align}
+
+The dissipative (imaginary) part of the shear modulus is:
+\begin{equation}
+G'' = \frac{J_{\mathrm{im}}}{J_{\mathrm{re}}^2 + J_{\mathrm{im}}^2}
+\label{eq:Gimag}
+\end{equation}
+
+Volumetric tidal heating under Andrade rheology is then:
+\begin{equation}
+q_{\mathrm{tidal}}^{\mathrm{And}}(T) = \tfrac{1}{2}\,\omega\,
+  \varepsilon_0^2\,G''(\omega, T)
+\label{eq:andrade_heating}
+\end{equation}
+
+The Andrade term $(\omega\tau)^{-\alpha}$ decays as a gentle power law
+($\alpha = 0.2$), producing significant dissipation across a much wider
+range of viscosities (and therefore temperatures) than the sharp Maxwell
+peak. This is the primary reason for adopting Andrade rheology: laboratory
+measurements on polycrystalline ice confirm broadband dissipation
+behaviour inconsistent with the single-timescale Maxwell model.
+
+%======================================================================
+\section{Stagnant-Lid Convection Parameterisation}
+\label{sec:convection}
+%======================================================================
+
+Europa's ice shell is expected to convect in the stagnant-lid regime,
+where a rigid conductive lid overlies a slowly overturning convective
+interior. Rather than resolving convective flow, the model parameterises
+the heat transport enhancement using scaling laws from numerical
+experiments (Solomatov \& Moresi 2000; Green et al.\ 2021;
+Deschamps \& Vilella 2021).
+
+\subsection{Conductive--Convective Interface Detection}
+
+At each timestep, the model scans the temperature profile from the
+surface to find the critical rheological transition temperature $T_c$
+below which the viscosity contrast is too large for convective
+participation.
+
+\subsubsection{Interior temperature (Deschamps \& Vilella 2021, Eq.~18)}
+
+\begin{equation}
+T_i = B\left[\sqrt{1 + \frac{2}{B}(T_m - c_2\,\Delta T_s)} - 1\right]
+\label{eq:Ti}
+\end{equation}
+where $B = Q_v / (2\,R\,c_1)$, $c_1 = 1.43$, $c_2 = -0.03$, and
+$\Delta T_s = T_m - T_{\mathrm{surf}}$.
+
+\subsubsection{Viscous temperature scale (Green et al.\ 2021)}
+
+The viscous temperature scale $\Delta T_v$ characterises the temperature
+interval over which viscosity changes by one $e$-fold:
+\begin{equation}
+\Delta T_v = -\frac{\eta(T_i)}{\dd\eta/\dd T\big|_{T_i}}
+  = \frac{R\,T_i^2}{A_v\,T_m}
+\label{eq:DTv}
+\end{equation}
+where $A_v = Q_v / (N\,R\,T_m)$ and $N$ is the stress exponent.
+
+\subsubsection{Lid-base temperature}
+
+The conductive lid base temperature is:
+\begin{equation}
+T_c = T_i - \theta_{\mathrm{lid}}\,\Delta T_v
+\label{eq:Tc}
+\end{equation}
+where $\theta_{\mathrm{lid}} = 2.24$ (Green et al.\ 2021, following
+Deschamps \& Vilella 2021).
+
+\subsubsection{Interface depth}
+
+The conductive lid thickness $D_{\mathrm{cond}}$ is obtained by scanning
+the numerical temperature profile for the first depth $z_c$ where
+$T(z) \geq T_c$, with linear interpolation between grid nodes:
+\begin{equation}
+z_c = z_{j-1} + \frac{T_c - T_{j-1}}{T_j - T_{j-1}}\,(z_j - z_{j-1})
+\label{eq:zc}
+\end{equation}
+
+The convective sublayer thickness is $D_{\mathrm{conv}} = H - z_c$.
+
+\subsection{Rayleigh and Nusselt Numbers}
+
+The Rayleigh number of the convective sublayer is:
+\begin{equation}
+\Ra = \frac{\rho\,g\,\alpha_{th}\,\Delta T_{\mathrm{conv}}\,
+  D_{\mathrm{conv}}^3}{\kappa\,\bar{\eta}}
+\label{eq:Ra}
+\end{equation}
+where $\Delta T_{\mathrm{conv}} = T_m - T_c$, $\kappa = k/(\rho\,c_p)$
+is the thermal diffusivity, and $\bar{\eta}$ is the viscosity evaluated
+at the mean convective temperature. Convection is active when
+$\Ra \geq \Ra_{\mathrm{crit}} = 1000$.
+
+For supercritical flow, the Nusselt number is:
+\begin{equation}
+\Nu = C\,\Ra^{\xi}\left(\frac{T_i - T_c}{\Delta T_{\mathrm{conv}}}\right)^{\!\zeta}
+\label{eq:Nu}
+\end{equation}
+with $C = 0.3446$, $\xi = 1/3$ (Solomatov \& Moresi 2000), and
+$\zeta = 4/3$ accounting for internal tidal heating
+(Green et al.\ 2021). For subcritical conditions ($\Ra < \Ra_{\mathrm{crit}}$),
+$\Nu = 1$ (pure conduction).
+
+\subsection{Effective Conductivity}
+
+Within the convective sublayer, the thermal conductivity is enhanced
+by the Nusselt factor:
+\begin{equation}
+k_{\mathrm{eff}}(z) = \begin{cases}
+  k(T(z))            & z < z_c \quad \text{(conductive lid)} \\
+  \Nu \cdot k(T(z))  & z \geq z_c \quad \text{(convective sublayer)}
+\end{cases}
+\label{eq:keff}
+\end{equation}
+
+The 2D column-array model applies this same Nusselt enhancement
+directly in every latitude column, with no additional surface-temperature
+ramp or cold-column suppression factor. This keeps the 1D and 2D
+convection criteria identical.
+
+%======================================================================
+\section{Latitude-Dependent Extension}
+\label{sec:2d}
+%======================================================================
+
+The 1D model is extended to a 2D axisymmetric configuration by
+coupling $N_\phi$ independent radial columns (default $N_\phi = 19$)
+at latitudes $\phi \in [0, \pi/2]$ (equator to pole), each with
+latitude-appropriate boundary conditions.
+
+\subsection{Surface Temperature Profile}
+
+The annual-mean surface temperature varies with latitude as:
+\begin{equation}
+T_s(\phi) = \left[
+  (T_{\mathrm{eq}}^4 - T_{\mathrm{floor}}^4)\,\cos^p\!\phi
+  + T_{\mathrm{floor}}^4
+\right]^{1/4}
+\label{eq:Tsurf_lat}
+\end{equation}
+where $T_{\mathrm{eq}} = \SI{110}{\kelvin}$ is the equatorial
+temperature, $T_{\mathrm{floor}} = \SI{46}{\kelvin}$ is the polar
+floor (Ojakangas \& Stevenson 1989), and $p = 1.25$ is an exponent
+calibrated against the seasonal energy balance model of Ashkenazy (2019),
+reducing the RMS temperature error from \SI{3.01}{\kelvin} ($p = 1$) to
+\SI{0.70}{\kelvin}.
+
+\subsection{Tidal Strain Latitude Profile}
+
+Tidal strain varies with latitude following the eccentricity-tide
+dissipation pattern of Beuthe (2013). The default whole-shell
+(mantle--core) pattern gives monotonically increasing strain toward
+the poles:
+\begin{equation}
+\varepsilon_0(\phi)
+  = \varepsilon_{\mathrm{eq}}\,\sqrt{1 + c\,\sin^2\!\phi}
+\label{eq:strain_lat}
+\end{equation}
+where
+\begin{equation}
+c = \left(\frac{\varepsilon_{\mathrm{pole}}}
+  {\varepsilon_{\mathrm{eq}}}\right)^{\!2} - 1
+\end{equation}
+With $\varepsilon_{\mathrm{eq}} = \num{6.0e-6}$ and
+$\varepsilon_{\mathrm{pole}} = \num{1.2e-5}$ (a 2:1 pole-to-equator
+ratio; Tobie et al.\ 2003), $c = 3$.
+
+Two alternative patterns are also implemented:
+\begin{itemize}[leftmargin=2em]
+\item \textbf{Shell-dominated} (thin-shell membrane):
+  $\varepsilon_0(\phi) = \varepsilon_{\mathrm{pole}}\,
+  \sqrt{1 + c'\cos^2\!\phi}$ — monotonically increasing toward the
+  equator.
+\item \textbf{Non-monotonic} (degree-4 amplification):
+  mantle--core $\times [1 + A_m\,\sin^2(2\phi)]$ — peak at
+  mid-latitudes ($A_m = 0.3$ default).
+\end{itemize}
+
+\subsection{Ocean Heat Transport Scenarios}
+
+The basal heat flux delivered by the ocean to the ice base varies with
+latitude under three competing scenarios, parameterised following
+Lemasquerier et al.\ (2023):
+
+\begin{enumerate}[leftmargin=2em]
+\item \textbf{Uniform transport:}
+\begin{equation}
+q_{\mathrm{ocean}}(\phi) = q_{\mathrm{mean}}
+\end{equation}
+
+\item \textbf{Polar-enhanced} (Lemasquerier et al.\ 2023):
+\begin{equation}
+q_{\mathrm{ocean}}(\phi) = q_{\mathrm{mean}}\,
+  \frac{1 + a\,\sin^2\!\phi}{1 + a/3}
+\label{eq:q_polar}
+\end{equation}
+
+\item \textbf{Equator-enhanced} (Soderlund et al.\ 2014):
+\begin{equation}
+q_{\mathrm{ocean}}(\phi) = q_{\mathrm{mean}}\,
+  \frac{1 + a\,\cos^2\!\phi}{1 + 2a/3}
+\label{eq:q_equator}
+\end{equation}
+\end{enumerate}
+
+The amplitude parameter $a$ is derived from the mantle tidal fraction
+$q^*$ (Lemasquerier et al.\ 2023), which measures the fraction of basal
+heating attributable to tidal dissipation in the silicate mantle
+($q^* \in [0, 0.91]$):
+\begin{equation}
+a = \frac{3\,q^*}{3 - n\,q^*}
+\end{equation}
+where $n = 1$ for polar-enhanced and $n = 2$ for equator-enhanced
+patterns. The normalisation denominators in Eqs.~\ref{eq:q_polar}--\ref{eq:q_equator}
+ensure that the area-weighted mean heat flux is exactly $q_{\mathrm{mean}}$.
+
+\subsection{Lateral Heat Diffusion}
+
+Explicit lateral diffusion between adjacent columns is applied in
+geographic coordinates:
+\begin{equation}
+\frac{\pp T}{\pp t}\bigg|_{\mathrm{lat}}
+  = \frac{k}{R_p^2\,\cos\phi}\,\frac{\pp}{\pp\phi}
+    \left(\cos\phi\,\frac{\pp T}{\pp\phi}\right)
+\label{eq:lateral}
+\end{equation}
+
+At the equator ($\phi = 0$), a symmetry condition
+$\pp T/\pp\phi = 0$ is applied. At the pole ($\phi = \pi/2$), where
+$\cos\phi \to 0$, L'H\^{o}pital's rule reduces the operator to:
+\begin{equation}
+\frac{\pp T}{\pp t}\bigg|_{\mathrm{pole}}
+  = \frac{2\,k}{R_p^2}\,\frac{\pp^2 T}{\pp\phi^2}
+\end{equation}
+
+The thermal diffusion timescale across Europa's radius is
+$\tau \sim R_p^2/\kappa \sim 200$~Gyr, far exceeding the
+model's integration window of ${\sim}16$~Myr. Consequently,
+lateral conduction is negligible; the latitude structure is determined
+entirely by the latitude-varying boundary conditions and tidal forcing.
+
+%======================================================================
+\section{Monte Carlo Uncertainty Quantification}
+\label{sec:mc}
+%======================================================================
+
+\subsection{Forward Propagation}
+
+For each Monte Carlo realisation, the model:
+\begin{enumerate}[leftmargin=2em]
+\item Draws parameter values from the prior distributions
+      (Table~\ref{tab:priors}).
+\item Initialises a 1D ice column with a linear temperature profile.
+\item Integrates Eq.~\ref{eq:heat} to thermal equilibrium using the
+      Stefan condition (Eq.~\ref{eq:stefan}) to evolve shell thickness.
+\item Records the equilibrium conductive lid thickness $D_{\mathrm{cond}}$,
+      convective sublayer thickness $D_{\mathrm{conv}}$, total shell
+      thickness $H$, Rayleigh and Nusselt numbers, and all sampled
+      parameter values.
+\end{enumerate}
+
+Production ensembles use $N = 5{,}000$--$15{,}000$ realisations,
+parallelised across CPU cores. Physical filters reject realisations with
+$H < \SI{0.5}{\kilo\metre}$ or $H > 0.99\,D_{\mathrm{H_2O}}$ (water
+layer thickness).
+
+\subsection{Prior Distributions}
+\label{sec:priors}
+
+Table~\ref{tab:priors} lists the prior distributions for all sampled
+parameters, based on the 2026 parameter audit
+(PARAMETER\_PRIOR\_AUDIT\_2026).
+
+\begin{table}[h]
+\centering
+\caption{Monte Carlo prior distributions (2026 audited).}
+\label{tab:priors}
+\small
+\begin{tabular}{llll}
+\toprule
+\textbf{Parameter} & \textbf{Distribution} & \textbf{Range / Clip} & \textbf{Sensitivity} \\
+\midrule
+$q_{\mathrm{basal}}$ & Uniform & [5, 25] mW/m$^2$ & Medium \\
+$d_{\mathrm{grain}}$ & LogNormal($\SI{0.6}{\milli\metre}$, $\sigma = 0.35$~dex)
+  & [0.05, 3.0] mm & \textbf{High} \\
+$\varepsilon_0$ & LogNormal($1.2{\times}10^{-5}$, $\sigma = 0.3$~dex)
+  & [$2{\times}10^{-6}$, $3.4{\times}10^{-5}$] & High \\
+$\mu_{\mathrm{ice}}$ & Normal($3.5 \pm 0.5$ GPa) & [2, 5] GPa & High \\
+$T_{\mathrm{surf}}$ & Normal($104 \pm 7$ K) & [80, 120] K & Medium \\
+$D_{\mathrm{H_2O}}$ & Normal($127 \pm 21$ km) & [80, 200] km & Low \\
+$Q_v$ & Normal(59.4 kJ/mol, 5\%) & --- & \textbf{Dominant} \\
+$Q_b$ & Normal(49.0 kJ/mol, 5\%) & --- & Low \\
+$D_{0v}$ & Normal($9.1{\times}10^{-4}$, 3.3\%) & --- & Low \\
+$D_{0b}$ & Normal($8.4{\times}10^{-4}$, 3.3\%) & --- & Low \\
+$H_{\mathrm{rad}}$ & $|\mathcal{N}(4.5, 1.0)|$ pW/kg & $> 0$ & Low \\
+$f_{\mathrm{porosity}}$ & Uniform & [0, 0.10] & Negligible \\
+$f_{\mathrm{salt}}$ & Fixed at 0 & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Equatorial overrides}
+
+For equatorial-proxy runs, $T_{\mathrm{surf}}$ is replaced by
+$\mathcal{N}(\SI{110}{\kelvin}, \SI{5}{\kelvin})$ clipped to
+$[\SI{95}{\kelvin}, \SI{120}{\kelvin}]$, and tidal strain by
+LogNormal($\num{6e-6}$, $\sigma = 0.2$~dex) clipped to
+$[\num{2e-6}, \num{2e-5}]$. An ocean heat scaling factor
+$f_{\mathrm{ocean}} \in \{0.55, 0.67, 1.0, 1.2, 1.5\}$ multiplies
+the tidal component of $q_{\mathrm{basal}}$.
+
+\subsubsection{Polar overrides}
+
+For polar-proxy runs, $T_{\mathrm{surf}}$ is
+$\mathcal{N}(\SI{50}{\kelvin}, \SI{5}{\kelvin})$ clipped to
+$[\SI{35}{\kelvin}, \SI{70}{\kelvin}]$, and tidal strain is
+LogNormal($\num{1.2e-5}$, $\sigma = 0.2$~dex) clipped to
+$[\num{5e-6}, \num{5e-5}]$.
+
+\subsection{Sobol Sensitivity Analysis}
+
+Global sensitivity is quantified via Sobol indices (Sobol' 1993),
+computed using Saltelli's extension of the Monte Carlo estimator with
+$N = 512$ base samples. The first-order index $S_i$ measures the
+fraction of output variance attributable to parameter $i$ alone; the
+total-order index $S_{T_i}$ includes all interactions involving
+parameter $i$.
+
+\subsection{Bayesian Observational Constraining}
+\label{sec:bayes}
+
+The Juno Microwave Radiometer (MWR) provides a constraint on the
+conductive lid thickness at mid-latitudes:
+$D_{\mathrm{cond}}^{\mathrm{obs}} = 29 \pm \SI{10}{\kilo\metre}$
+(Levin et al.\ 2026). Rather than re-running the forward model, we
+apply importance reweighting to the existing Monte Carlo ensemble.
+
+Each realisation $i$ receives a weight:
+\begin{equation}
+w_i = \frac{1}{\sqrt{2\pi}\,\sigma_{\mathrm{tot}}}\,
+  \exp\!\left[-\frac{1}{2}
+  \left(\frac{D_{\mathrm{cond},i} - D_{\mathrm{cond}}^{\mathrm{obs}}}
+       {\sigma_{\mathrm{tot}}}\right)^{\!2}\right]
+\label{eq:weights}
+\end{equation}
+where $\sigma_{\mathrm{tot}} = \sqrt{\sigma_{\mathrm{obs}}^2 +
+\sigma_{\mathrm{model}}^2}$ combines the observational uncertainty
+($\sigma_{\mathrm{obs}} = \SI{10}{\kilo\metre}$) and a model
+discrepancy term ($\sigma_{\mathrm{model}} = \SI{3}{\kilo\metre}$).
+
+Weighted posterior percentiles are computed via the sorted cumulative
+weight method:
+\begin{equation}
+\hat{q}_p = x_{(\pi)}
+\quad\text{where}\quad
+\sum_{j \leq \pi} w_{(j)} = p \cdot \sum_j w_j
+\end{equation}
+
+The effective sample size (ESS) monitors the quality of the
+reweighting:
+\begin{equation}
+\mathrm{ESS} = \frac{\left(\sum_i w_i\right)^2}{\sum_i w_i^2}
+\label{eq:ess}
+\end{equation}
+An iterative scheme tightens the priors on $q_{\mathrm{basal}}$ and
+$d_{\mathrm{grain}}$ using posterior percentiles, re-runs the ensemble
+with constrained priors, and iterates until convergence (posterior
+median within the target range and ESS fraction $> 10\%$).
+
+Bayes factors for model comparison between ocean transport scenarios
+$\mathcal{M}_j$ are computed as the ratio of marginal likelihoods:
+\begin{equation}
+\mathrm{BF}_{jk}
+  = \frac{P(D \mid \mathcal{M}_j)}{P(D \mid \mathcal{M}_k)}
+  = \frac{\frac{1}{N_j}\sum_{i=1}^{N_j} w_i^{(j)}}
+         {\frac{1}{N_k}\sum_{i=1}^{N_k} w_i^{(k)}}
+\label{eq:bayes_factor}
+\end{equation}
+
+%======================================================================
+\section{Summary of Key Physical Constants}
+\label{sec:constants}
+%======================================================================
+
+\begin{table}[h]
+\centering
+\caption{Planetary and thermal constants.}
+\label{tab:constants}
+\begin{tabular}{llrl}
+\toprule
+\textbf{Parameter} & \textbf{Symbol} & \textbf{Value} & \textbf{Unit} \\
+\midrule
+Europa radius         & $R_p$           & 1,561,000  & m \\
+Surface gravity       & $g$             & 1.315      & m/s$^2$ \\
+Orbital frequency     & $\omega$        & $2.047 \times 10^{-5}$ & rad/s \\
+Eccentricity          & $e$             & 0.0101     & --- \\
+Melting temperature   & $T_m$           & 273        & K \\
+Latent heat           & $L$             & 334,000    & J/kg \\
+Reference density     & $\rho_0$        & 917        & kg/m$^3$ \\
+Thermal expansion     & $\alpha_{th}$   & $1.6 \times 10^{-4}$ & K$^{-1}$ \\
+Clausius--Clapeyron   & $\dd T_m/\dd P$ & $-7.4 \times 10^{-8}$ & K/Pa \\
+Critical Rayleigh no. & $\Ra_{\mathrm{crit}}$ & 1000  & --- \\
+Nu prefactor          & $C$             & 0.3446     & --- \\
+Nu exponent           & $\xi$           & $1/3$      & --- \\
+Internal heating exp. & $\zeta$         & $4/3$      & --- \\
+Lid ratio             & $\theta_{\mathrm{lid}}$ & 2.24 & --- \\
+Andrade exponent      & $\alpha$        & 0.2        & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%======================================================================
+\section{Computational Implementation}
+\label{sec:implementation}
+%======================================================================
+
+The model is implemented in Python using NumPy for array operations and
+SciPy for the tridiagonal solver (\texttt{scipy.linalg.solve\_banded}).
+Monte Carlo realisations are parallelised via Python's
+\texttt{multiprocessing} module. Default numerical parameters are listed
+in Table~\ref{tab:numerical}.
+
+\begin{table}[h]
+\centering
+\caption{Default numerical parameters.}
+\label{tab:numerical}
+\begin{tabular}{lrl}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Description} \\
+\midrule
+$n_z$               & 31        & Radial nodes per column \\
+$N_\phi$            & 19        & Latitude columns (2D mode) \\
+$\Delta t$          & $10^{12}$~s & Timestep ($\sim$31,700~yr) \\
+$t_{\mathrm{max}}$  & $10^{15}$~s & Max integration time ($\sim$31.7~Myr) \\
+Rannacher steps     & 4         & BE half-steps at startup \\
+Picard iterations   & 3         & Max per timestep \\
+Equilibrium tol.    & $10^{-15}$~m/s & $|\dd H/\dd t|$ halt criterion \\
+MC samples          & 5,000--15,000 & Per scenario \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

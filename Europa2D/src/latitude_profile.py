@@ -20,7 +20,7 @@ import numpy.typing as npt
 from typing import Literal, Optional, Union
 from dataclasses import dataclass
 
-from constants import Planetary
+from constants import Planetary, Thermal
 
 OceanPattern = Literal["uniform", "polar_enhanced", "equator_enhanced"]
 
@@ -42,23 +42,30 @@ class LatitudeProfile:
         q_ocean_mean: Global mean ocean heat flux (W/m^2)
         ocean_pattern: Heat flux distribution pattern
     """
-    T_eq: float = 110.0
+    T_eq: float = Thermal.SURFACE_TEMP_MEAN
     epsilon_eq: float = 6.0e-6
     epsilon_pole: float = 1.2e-5
     q_ocean_mean: float = 0.02
     ocean_pattern: OceanPattern = "uniform"
     ocean_amplitude: Optional[float] = None
-    T_floor: float = 46.0
+    T_floor: float = 50.0
     q_star: Optional[float] = None
     mantle_tidal_fraction: float = 0.5
     strict_q_star: bool = True
     tidal_pattern: str = "mantle_core"  # "mantle_core" | "shell_dominated" | "non_monotonic"
     mid_latitude_amplification: float = 0.3  # used only for non_monotonic pattern
     surface_temp_exponent: float = 1.25  # cos^p(phi) exponent; calibrated to Ashkenazy (2019)
+    surface_pattern: str = "latitude"  # "latitude" (default) | "uniform" (T_eq everywhere)
     grain_latitude_mode: str = "global"  # "global" | "strain" | "strain_temperature"
     grain_strain_exponent: float = 0.5  # d_grain ~ (eps_ref/eps(phi))^alpha; used by "strain" modes
 
     def __post_init__(self):
+        _SURFACE_PATTERNS = {"latitude", "uniform"}
+        if self.surface_pattern not in _SURFACE_PATTERNS:
+            raise ValueError(
+                f"Unknown surface_pattern={self.surface_pattern!r}, "
+                f"must be one of {_SURFACE_PATTERNS}"
+            )
         _TIDAL_PATTERNS = {"mantle_core", "shell_dominated", "non_monotonic"}
         if self.tidal_pattern not in _TIDAL_PATTERNS:
             raise ValueError(
@@ -75,7 +82,7 @@ class LatitudeProfile:
             raise ValueError(
                 f"T_floor ({self.T_floor} K) must be positive."
             )
-        if self.T_floor >= self.T_eq:
+        if self.surface_pattern != "uniform" and self.T_floor >= self.T_eq:
             raise ValueError(
                 f"T_floor ({self.T_floor} K) must be less than T_eq ({self.T_eq} K). "
                 "A polar floor >= equatorial temperature is non-physical for Europa."
@@ -129,6 +136,9 @@ class LatitudeProfile:
         Returns:
             Surface temperature (K)
         """
+        if self.surface_pattern == "uniform":
+            result = np.full_like(np.asarray(phi, dtype=float), self.T_eq)
+            return float(result) if np.ndim(phi) == 0 else result
         phi_arr = np.asarray(phi)
         T_eq4 = self.T_eq ** 4
         T_fl4 = self.T_floor ** 4

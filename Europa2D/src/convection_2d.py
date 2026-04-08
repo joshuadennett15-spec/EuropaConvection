@@ -69,6 +69,20 @@ def make_adjuster(
             _ra_onset_adjuster(state, ra_crit, T_profile, z_grid, total_thickness)
         return adjuster
 
+    if mechanism == "ra_onset_heatbal":
+        ra_crit = params["ra_crit_override"]
+        include_tidal = params.get("include_tidal", False)
+        epsilon_0 = float(profile.tidal_strain(phi))
+        mu_ice = 3.3e9
+
+        def adjuster(state, T_profile, z_grid, total_thickness, q_ocean):
+            _ra_onset_adjuster(state, ra_crit, T_profile, z_grid, total_thickness)
+            _heat_balance_adjuster(
+                state, T_profile, z_grid, total_thickness, q_ocean,
+                include_tidal, epsilon_0, mu_ice,
+            )
+        return adjuster
+
     if mechanism == "tidal_viscosity":
         epsilon_0_local = float(profile.tidal_strain(phi))
         epsilon_ref = params.get("epsilon_ref", 6e-6)

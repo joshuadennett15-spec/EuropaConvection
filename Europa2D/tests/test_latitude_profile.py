@@ -142,10 +142,10 @@ class TestSurfaceTemperatureEnergyBalance:
         with pytest.raises(ValueError, match="T_floor.*T_eq"):
             LatitudeProfile(T_eq=100.0, T_floor=110.0)
 
-    def test_default_T_floor_is_46(self):
-        """Ashkenazy (2019) annual-mean polar temperature at Q=0.05 W/m^2."""
+    def test_default_T_floor_is_50(self):
+        """Default 2D polar floor should match the current production baseline."""
         profile = LatitudeProfile()
-        assert profile.T_floor == 46.0
+        assert profile.T_floor == 50.0
 
     def test_pole_is_warmer_than_old_clamp(self):
         """New floor (52 K) gives a warmer pole than old cos(89.5 deg) clamp (~33.6 K)."""

@@ -1,4 +1,4 @@
-"""Quick 3-experiment test with reduced params for fast iteration."""
+"""Quick test: baseline + heatbal_ocean + heatbal_total, 15 samples, new profile scorer."""
 import sys
 import time
 from pathlib import Path
@@ -16,7 +16,7 @@ from objectives import compute_latitude_score
 
 def run_scenario(pattern, q_star, n_samples, hypothesis=None):
     runner = MonteCarloRunner2D(
-        n_iterations=n_samples, seed=42, n_workers=4,
+        n_iterations=n_samples, seed=42, n_workers=12,
         n_lat=9, nx=21,
         ocean_pattern=pattern, q_star=q_star,
         max_steps=300, eq_threshold=1e-10,
@@ -35,9 +35,8 @@ def run_scenario(pattern, q_star, n_samples, hypothesis=None):
 def main():
     experiments = [
         ('baseline', None),
-        ('ra_crit_150', ConvectionHypothesis('ra_onset', {'ra_crit_override': 150})),
-        ('ra_crit_50', ConvectionHypothesis('ra_onset', {'ra_crit_override': 50})),
         ('heatbal_ocean', ConvectionHypothesis('heat_balance', {'include_tidal': False})),
+        ('heatbal_total', ConvectionHypothesis('heat_balance', {'include_tidal': True})),
     ]
 
     n_samples = 15
@@ -59,11 +58,13 @@ def main():
         score, metrics = compute_latitude_score(scenarios, consistency_error=0.0)
         dt = time.time() - t0
         print(f'  Score:           {score:.2f}  ({dt:.0f}s)')
-        print(f'  JS(D_cond):      {metrics.get("JS_discriminability", 0):.6f}')
-        print(f'  JS(D_conv):      {metrics.get("JS_discriminability_Dconv", 0):.6f}')
-        print(f'  D_conv contrast: {metrics.get("D_conv_contrast", 0):.2f} km')
-        print(f'  D_cond@35:       {metrics.get("D_cond_35_median", 0):.1f} km')
-        print(f'  Ra eq/pole:      {metrics.get("Ra_eq_median", 0):.0f} / {metrics.get("Ra_pole_median", 0):.0f}')
+        print(f'  profile_JS_min:  {metrics["profile_JS_min"]:.4f}')
+        print(f'  profile_JS_mean: {metrics["profile_JS_mean"]:.4f}')
+        print(f'  JS@35 (report):  {metrics["JS_35"]:.4f}')
+        print(f'  JS_peak:         {metrics["JS_peak"]:.4f}  at {metrics["phi_peak_js"]:.0f} deg')
+        print(f'  D_conv contrast: {metrics["D_conv_contrast"]:.2f} km')
+        print(f'  D_cond@35:       {metrics["D_cond_35_median"]:.1f} km')
+        print(f'  Juno excess:     {metrics["juno_excess"]:.1f} km')
 
     print(f'\n{"="*60}')
     print('  QUICK TEST COMPLETE')

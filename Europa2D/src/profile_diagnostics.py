@@ -198,7 +198,7 @@ def format_diagnostic_lines(
         f"q_pole/q_eq = {diagnostics.q_ratio_pole_over_eq:.2f}",
         f"q* = {diagnostics.q_star:.3f} (Lemasquerier 2023)",
         f"mantle tidal fraction = {diagnostics.mantle_tidal_fraction:.2f}",
-        f"T_floor = {diagnostics.T_floor:.1f} K (Ashkenazy 2019)",
+        f"T_floor = {diagnostics.T_floor:.1f} K",
         f"max Nu = {diagnostics.max_nu:.2f}",
         "Interpret 90 deg as a symmetry boundary node, not an interior latitude.",
     ]

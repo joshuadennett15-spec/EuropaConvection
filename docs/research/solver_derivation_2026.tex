@@ -1,0 +1,810 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{siunitx}
+
+\setlength{\headheight}{14pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textit{Solver Derivation}}
+\lhead{\textit{Europa Ice Shell Model}}
+\cfoot{\thepage}
+
+\titleformat{\section}{\Large\bfseries}{}{0em}{}
+\titleformat{\subsection}{\large\bfseries}{}{0em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\itshape}{}{0em}{}
+
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\pp}{\partial}
+\newcommand{\Ra}{\mathrm{Ra}}
+\newcommand{\Nu}{\mathrm{Nu}}
+\newcommand{\half}{\tfrac{1}{2}}
+
+\title{\textbf{Numerical Methods: Full Derivation}\\[0.3em]
+\Large Finite Difference Discretisation, Convection\\
+Parameterisation, and Bayesian Constraining\\[0.5em]
+\large\textit{From Continuous Equations to Matrix Coefficients}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+\tableofcontents
+\newpage
+
+%======================================================================
+\section{The Heat Equation in Conservative Form}
+\label{sec:governing}
+%======================================================================
+
+\subsection{Continuous form}
+
+The temperature field $T(z,t)$ in a radially stratified ice shell
+satisfies the energy equation with volumetric tidal heating:
+\begin{equation}
+\rho(T)\,c_p(T)\,\frac{\pp T}{\pp t}
+  = \frac{1}{\mathcal{G}(z)}\,\frac{\pp}{\pp z}
+    \left[\mathcal{G}(z)\,k(T)\,\frac{\pp T}{\pp z}\right]
+  + q_{\mathrm{tidal}}(T)
+\label{eq:heat}
+\end{equation}
+where $z$ is depth from the surface, and the geometric factor accounts
+for coordinate system:
+\begin{equation}
+\mathcal{G}(z) = \begin{cases}
+  1       & \text{Cartesian (thin shell, } H < 30\text{~km)} \\
+  r(z)^2  & \text{spherical (thick shell, } H \geq 30\text{~km)}
+\end{cases}
+\end{equation}
+with $r(z) = R_p - z$ the radial distance from Europa's centre.
+
+The equation is in \textbf{flux-conservative form}: the divergence
+operator $\frac{1}{\mathcal{G}}\frac{\pp}{\pp z}(\mathcal{G}\,k\,\frac{\pp T}{\pp z})$
+ensures that the discrete heat flux is conserved across cell interfaces,
+even when $k$ jumps by orders of magnitude at the conductive--convective
+boundary.
+
+\subsection{Boundary conditions}
+
+\begin{itemize}[leftmargin=2em]
+\item \textbf{Surface} ($z = 0$): fixed temperature $T(0,t) = T_{\mathrm{surf}}$
+      (Dirichlet).
+\item \textbf{Base} ($z = H(t)$): pressure-dependent melting point
+      $T(H,t) = T_m(H) = 273.0 - 7.4\times10^{-8}\,\rho\,g\,H$ (Dirichlet).
+\end{itemize}
+
+The shell thickness $H(t)$ evolves via the Stefan condition:
+\begin{equation}
+\frac{\dd H}{\dd t} = \frac{q_{\mathrm{cond}}(H) - q_{\mathrm{ocean}}}{\rho\,L}
+\label{eq:stefan}
+\end{equation}
+
+\subsection{Initial condition}
+
+The temperature is initialised as a linear profile:
+\begin{equation}
+T(z, 0) = T_{\mathrm{surf}} + \frac{T_m(H_0) - T_{\mathrm{surf}}}{H_0}\,z
+\end{equation}
+with initial shell thickness $H_0 = 10$~km.
+
+%======================================================================
+\section{Spatial Discretisation}
+\label{sec:spatial}
+%======================================================================
+
+\subsection{Uniform grid}
+
+The domain $[0, H(t)]$ is divided into $N$ equally spaced nodes
+$z_i = i\,\Delta z$ for $i = 0, 1, \ldots, N{-}1$, where:
+\begin{equation}
+\Delta z = \frac{H(t)}{N - 1}
+\end{equation}
+
+The grid uses normalised coordinates $\xi_i = i/(N{-}1) \in [0,1]$
+so that physical positions $z_i = \xi_i \cdot H(t)$ automatically
+adjust when $H$ changes. This avoids explicit remeshing.
+
+\subsection{Half-node conductivity: harmonic mean}
+
+At cell interfaces, the conductivity $k_{i+\half}$ is computed as the
+\textbf{harmonic mean} of adjacent nodal values:
+\begin{equation}
+k_{i+\half} = \frac{2\,k_i\,k_{i+1}}{k_i + k_{i+1}}
+\label{eq:harmonic}
+\end{equation}
+
+This choice is physically motivated: for heat flow through two
+resistances in series (as across a cell interface), the harmonic mean
+gives the correct effective conductivity. It is critical at the
+conductive--convective interface, where $k$ may jump by a factor of
+$\Nu \sim 10$--$20$ when the Nusselt enhancement is applied. An
+arithmetic mean would overestimate the interface flux; the harmonic
+mean correctly limits it to the smaller of the two conductivities.
+
+\subsection{Geometric factors at half-nodes}
+
+In spherical geometry, the geometric factor at half-nodes is
+approximated by arithmetic averaging:
+\begin{equation}
+\mathcal{G}_{i+\half} = \frac{\mathcal{G}_i + \mathcal{G}_{i+1}}{2}
+  = \frac{r_i^2 + r_{i+1}^2}{2}
+\end{equation}
+
+\subsection{Discrete diffusion operator}
+
+Applying the conservative finite-difference stencil to the flux
+divergence term at interior node $i$:
+\begin{equation}
+\frac{1}{\mathcal{G}_i}\frac{\pp}{\pp z}\!\left[\mathcal{G}\,k\,\frac{\pp T}{\pp z}\right]_i
+\approx
+\frac{1}{\mathcal{G}_i\,\Delta z^2}\left[
+  \mathcal{G}_{i+\half}\,k_{i+\half}\,(T_{i+1} - T_i)
+  - \mathcal{G}_{i-\half}\,k_{i-\half}\,(T_i - T_{i-1})
+\right]
+\label{eq:Ldiscrete}
+\end{equation}
+
+Define the shorthand coefficients:
+\begin{align}
+F_i^{+} &= \frac{\mathcal{G}_{i+\half}\,k_{i+\half}}
+  {\mathcal{G}_i\,\Delta z^2}
+\label{eq:Fplus} \\
+F_i^{-} &= \frac{\mathcal{G}_{i-\half}\,k_{i-\half}}
+  {\mathcal{G}_i\,\Delta z^2}
+\label{eq:Fminus}
+\end{align}
+
+Then the discrete spatial operator is:
+\begin{equation}
+\mathcal{L}_i[T] = F_i^{+}\,(T_{i+1} - T_i) - F_i^{-}\,(T_i - T_{i-1})
+  = F_i^{-}\,T_{i-1} - (F_i^{+} + F_i^{-})\,T_i + F_i^{+}\,T_{i+1}
+\label{eq:Loperator}
+\end{equation}
+
+%======================================================================
+\section{Time Integration: the $\theta$-Method}
+\label{sec:time}
+%======================================================================
+
+\subsection{General $\theta$-method}
+
+The semi-discrete equation
+$\rho_i\,c_{p,i}\,\frac{\dd T_i}{\dd t} = \mathcal{L}_i[T] + q_i$
+is integrated in time using the $\theta$-weighted scheme:
+\begin{equation}
+\rho_i\,c_{p,i}\,\frac{T_i^{n+1} - T_i^n}{\Delta t_{\mathrm{eff}}}
+  = \theta\,\mathcal{L}_i[T^{n+1}]
+  + (1-\theta)\,\mathcal{L}_i[T^n]
+  + q_{\mathrm{tidal},i}
+\label{eq:theta}
+\end{equation}
+
+\begin{itemize}[leftmargin=2em]
+\item $\theta = 1$: backward Euler (first-order, L-stable, strongly
+      dissipative).
+\item $\theta = \half$: Crank--Nicolson (second-order, A-stable, minimally
+      dissipative).
+\end{itemize}
+
+Define the local CFL-like ratio:
+\begin{equation}
+\alpha_i = \frac{\Delta t_{\mathrm{eff}}}{\rho_i\,c_{p,i}}
+\label{eq:alpha}
+\end{equation}
+
+\subsection{Rearrangement into tridiagonal form}
+
+Substituting Eq.~\ref{eq:Loperator} into Eq.~\ref{eq:theta} and
+collecting terms on $T^{n+1}$ (left-hand side) and $T^n$ (right-hand
+side):
+
+\paragraph{Left-hand side (implicit):}
+\begin{align}
+\underbrace{-\theta\,\alpha_i\,F_i^{-}}_{a_i}\;T_{i-1}^{n+1}
++ \underbrace{\left[1 + \theta\,\alpha_i\,(F_i^{+} + F_i^{-})\right]}_{b_i}\;T_i^{n+1}
++ \underbrace{-\theta\,\alpha_i\,F_i^{+}}_{c_i}\;T_{i+1}^{n+1}
+\label{eq:lhs}
+\end{align}
+
+The tridiagonal coefficients are therefore:
+\begin{align}
+\boxed{a_i = -\theta\,\alpha_i\,F_i^{-}}
+  &\quad\text{(sub-diagonal)} \label{eq:ai} \\
+\boxed{b_i = 1 + \theta\,\alpha_i\,(F_i^{+} + F_i^{-})}
+  &\quad\text{(main diagonal)} \label{eq:bi} \\
+\boxed{c_i = -\theta\,\alpha_i\,F_i^{+}}
+  &\quad\text{(super-diagonal)} \label{eq:ci}
+\end{align}
+
+\paragraph{Right-hand side (explicit + source):}
+\begin{equation}
+d_i = T_i^n
+  + (1-\theta)\,\alpha_i\left[
+    F_i^{+,n}(T_{i+1}^n - T_i^n) - F_i^{-,n}(T_i^n - T_{i-1}^n)
+  \right]
+  + \alpha_i\,q_{\mathrm{tidal},i}
+\label{eq:rhs}
+\end{equation}
+
+where the superscript $n$ on $F^{\pm,n}$ indicates that the explicit
+flux coefficients are evaluated at the old-time material properties.
+The tidal heating source term enters the right-hand side directly as:
+\begin{equation}
+S_i = \frac{\Delta t_{\mathrm{eff}} \cdot q_{\mathrm{tidal}}(T_i)}
+  {\rho_i\,c_{p,i}}
+\label{eq:source}
+\end{equation}
+
+\subsection{Special case: backward Euler ($\theta = 1$)}
+
+When $\theta = 1$, the explicit flux term $(1-\theta)(\ldots)$
+vanishes, and the right-hand side simplifies to:
+\begin{equation}
+d_i = T_i^n + S_i \qquad (\theta = 1)
+\end{equation}
+
+This is computationally cheaper (no explicit flux evaluation) and is
+used during Rannacher startup.
+
+\subsection{Rannacher startup procedure}
+
+The Crank--Nicolson scheme ($\theta = \half$) is second-order accurate
+but can produce spurious oscillations when applied to stiff initial
+conditions (e.g., a sharp temperature gradient that develops in early
+timesteps). The Rannacher startup (Rannacher 1984) stabilises the
+scheme by using backward Euler for the first few steps:
+
+\begin{enumerate}[leftmargin=2em]
+\item For the first $N_R = 4$ logical timesteps:
+  \begin{enumerate}
+  \item Set $\theta = 1$ and $\Delta t_{\mathrm{eff}} = \Delta t / 2$.
+  \item Assemble the tridiagonal system and solve for $T^*$ (first half-step).
+  \item Using $T^*$ as the new initial condition, assemble and solve again
+        for $T^{n+1}$ (second half-step).
+  \end{enumerate}
+  Each logical step therefore comprises two backward-Euler half-steps,
+  advancing by a total of $\Delta t$.
+
+\item For all subsequent steps ($n \geq N_R$):
+  \begin{itemize}
+  \item Set $\theta = \half$ and $\Delta t_{\mathrm{eff}} = \Delta t$.
+  \item Assemble and solve the full Crank--Nicolson system.
+  \end{itemize}
+\end{enumerate}
+
+The backward-Euler half-steps are unconditionally stable and strongly
+dissipate high-frequency oscillations, ensuring a smooth handoff to the
+Crank--Nicolson scheme.
+
+%======================================================================
+\section{Nonlinear Iteration: Picard Method}
+\label{sec:picard}
+%======================================================================
+
+The material properties $k(T)$, $\rho(T)$, $c_p(T)$, and
+$q_{\mathrm{tidal}}(T)$ all depend on temperature, making the system
+nonlinear. At each timestep, the following Picard (fixed-point)
+iteration is applied:
+
+\begin{enumerate}[leftmargin=2em]
+\item Set the initial guess $T^{(0)} = T^n$ (previous timestep solution).
+\item For $m = 0, 1, 2$ (maximum 3 iterations):
+  \begin{enumerate}
+  \item Evaluate material properties at $T^{(m)}$:
+    $k^{(m)}_i = k(T^{(m)}_i)$,
+    $\rho^{(m)}_i = \rho(T^{(m)}_i)$,
+    $c_{p,i}^{(m)} = c_p(T^{(m)}_i)$,
+    $q^{(m)}_i = q_{\mathrm{tidal}}(T^{(m)}_i)$.
+  \item Compute half-node conductivities $k^{(m)}_{i+\half}$ via the
+        harmonic mean (Eq.~\ref{eq:harmonic}).
+  \item Assemble the tridiagonal system using coefficients
+        Eqs.~\ref{eq:ai}--\ref{eq:ci} and right-hand side Eq.~\ref{eq:rhs},
+        with implicit coefficients from $T^{(m)}$ and explicit
+        fluxes from $T^n$.
+  \item Solve the tridiagonal system via the Thomas algorithm to obtain
+        $T^{(m+1)}$.
+  \item Check convergence: if
+        $\max_i |T^{(m+1)}_i - T^{(m)}_i| < \SI{0.01}{\kelvin}$,
+        accept $T^{n+1} = T^{(m+1)}$ and exit.
+  \end{enumerate}
+\item If convergence is not achieved after 3 iterations, accept the
+      last iterate as $T^{n+1}$.
+\end{enumerate}
+
+In practice, convergence is typically achieved in 1--2 iterations
+because the temperature change per timestep is small relative to the
+absolute temperature.
+
+%======================================================================
+\section{Tridiagonal Solution: Thomas Algorithm}
+\label{sec:thomas}
+%======================================================================
+
+The assembled system $\mathbf{A}\,\mathbf{T}^{n+1} = \mathbf{d}$ is a
+tridiagonal matrix equation of dimension $N$:
+\begin{equation}
+\begin{pmatrix}
+b_0 & c_0 \\
+a_1 & b_1 & c_1 \\
+    & a_2 & b_2 & c_2 \\
+    &     & \ddots & \ddots & \ddots \\
+    &     &        & a_{N-2} & b_{N-2} & c_{N-2} \\
+    &     &        &         & a_{N-1} & b_{N-1}
+\end{pmatrix}
+\begin{pmatrix} T_0 \\ T_1 \\ T_2 \\ \vdots \\ T_{N-2} \\ T_{N-1} \end{pmatrix}
+=
+\begin{pmatrix} d_0 \\ d_1 \\ d_2 \\ \vdots \\ d_{N-2} \\ d_{N-1} \end{pmatrix}
+\end{equation}
+
+This is solved via \texttt{scipy.linalg.solve\_banded} (the Thomas
+algorithm), which performs LU decomposition in $O(N)$ operations:
+
+\paragraph{Forward sweep} (eliminate sub-diagonal):
+\begin{align}
+w_i &= \frac{a_i}{b_{i-1}'} \\
+b_i' &= b_i - w_i\,c_{i-1} \\
+d_i' &= d_i - w_i\,d_{i-1}'
+\end{align}
+
+\paragraph{Back substitution:}
+\begin{align}
+T_{N-1} &= \frac{d_{N-1}'}{b_{N-1}'} \\
+T_i     &= \frac{d_i' - c_i\,T_{i+1}}{b_i'} \qquad i = N{-}2, \ldots, 0
+\end{align}
+
+%======================================================================
+\section{Boundary Condition Implementation}
+\label{sec:bc_impl}
+%======================================================================
+
+\subsection{Surface node ($i = 0$): Dirichlet}
+
+For a fixed surface temperature, the first row of the tridiagonal
+system is:
+\begin{equation}
+\underbrace{1}_{b_0}\,T_0^{n+1} + \underbrace{0}_{c_0}\,T_1^{n+1}
+= \underbrace{T_{\mathrm{surf}}}_{d_0}
+\end{equation}
+
+\subsection{Surface node ($i = 0$): Stefan--Boltzmann radiative}
+
+For the radiative boundary condition
+$\varepsilon\sigma T_s^4 = (1-a)Q + k\,\frac{T_1 - T_s}{\Delta z}$,
+the $T^4$ nonlinearity is linearised around the current temperature
+estimate $T_s^{(m)}$:
+\begin{equation}
+T^4 \approx 4\,(T_s^{(m)})^3\,T_s^{n+1} - 3\,(T_s^{(m)})^4
+\end{equation}
+
+Substituting and rearranging into the matrix row
+$b_0\,T_0^{n+1} + c_0\,T_1^{n+1} = d_0$:
+\begin{align}
+b_0 &= 4\,\varepsilon\sigma\,(T_s^{(m)})^3 + \frac{k_{\half}}{\Delta z}
+  \label{eq:b0_rad} \\
+c_0 &= -\frac{k_{\half}}{\Delta z} \label{eq:c0_rad} \\
+d_0 &= (1-a)\,Q_{\odot} + 3\,\varepsilon\sigma\,(T_s^{(m)})^4
+  \label{eq:d0_rad}
+\end{align}
+
+where $k_{\half}$ is the half-node conductivity between nodes 0 and 1.
+
+\subsection{Basal node ($i = N{-}1$): melting-point Dirichlet}
+
+The last row enforces the pressure-dependent melting temperature:
+\begin{equation}
+\underbrace{1}_{b_{N-1}}\,T_{N-1}^{n+1} = T_m(H)
+  = 273.0 - 7.4\times10^{-8}\,\rho\,g\,H
+\end{equation}
+
+\subsection{Stefan condition: shell thickness evolution}
+
+After solving for $T^{n+1}$, the basal heat flux is computed via a
+second-order one-sided difference:
+\begin{equation}
+q_{\mathrm{cond}} = k(T_{N-1})\,
+  \frac{3\,T_{N-1} - 4\,T_{N-2} + T_{N-3}}{2\,\Delta z}
+\label{eq:qcond_numerical}
+\end{equation}
+
+The freezing-front velocity is:
+\begin{equation}
+v = \frac{q_{\mathrm{cond}} - q_{\mathrm{ocean}}}{\rho\,L}
+\end{equation}
+
+The shell thickness is updated explicitly:
+\begin{equation}
+H^{n+1} = \max\!\left(H^n + v\,\Delta t_{\mathrm{eff}},\; 500\text{~m}\right)
+\end{equation}
+
+The 500~m floor prevents the shell from vanishing entirely, which
+would produce a singular grid. Equilibrium is declared when
+$|v| < 10^{-15}$~m/s.
+
+Because the grid is defined on normalised coordinates
+$\xi_i \in [0,1]$, the physical node positions $z_i = \xi_i\,H$
+and spacing $\Delta z = H/(N{-}1)$ automatically adjust when $H$
+changes. No explicit remeshing or interpolation is required.
+
+%======================================================================
+\section{Convection Parameterisation: Full Algorithm}
+\label{sec:convection}
+%======================================================================
+
+\subsection{Physical basis}
+
+Europa's ice shell is expected to convect in the stagnant-lid regime:
+a cold, rigid conductive lid overlies a slowly overturning convective
+interior. The model does not resolve convective flow explicitly.
+Instead, it follows the parameterised approach of Green et al.\ (2021)
+and Deschamps \& Vilella (2021), which replaces the convective heat
+transport with an enhanced effective conductivity.
+
+The algorithm has four stages:
+\begin{enumerate}[leftmargin=2em]
+\item Compute the rheological transition temperature $T_c$.
+\item Scan the temperature profile to find the interface depth.
+\item Compute Ra and Nu for the convective sublayer.
+\item Modify the conductivity profile.
+\end{enumerate}
+
+\subsection{Stage 1: Transition temperature $T_c$}
+
+The transition temperature marks where viscosity becomes low enough
+for convective participation.
+
+\subsubsection{Interior temperature (Deschamps \& Vilella 2021, Eq.~18)}
+
+The mean temperature of the convective interior is:
+\begin{equation}
+T_i = B\left[\sqrt{1 + \frac{2}{B}\left(T_m - c_2\,\Delta T_s\right)} - 1\right]
+\label{eq:Ti}
+\end{equation}
+where:
+\begin{equation}
+B = \frac{Q_v}{2\,R\,c_1}, \qquad
+\Delta T_s = T_m - T_{\mathrm{surf}}
+\end{equation}
+with $c_1 = 1.43$ and $c_2 = -0.03$ (Deschamps \& Vilella 2021),
+$Q_v = 59{,}400$~J/mol, and $R = 8.314$~J/(mol$\cdot$K).
+
+\subsubsection{Viscous temperature scale}
+
+The Frank--Kamenetskii parameter characterises the exponential viscosity
+contrast:
+\begin{equation}
+A = \frac{Q_v}{N\,R\,T_m}
+\end{equation}
+where $N = 1$ for Newtonian (diffusion) creep. The viscosity at $T_i$
+and its derivative are:
+\begin{align}
+\eta(T_i) &= \eta_{\mathrm{ref}}\,\exp\!\left[A\left(\frac{T_m}{T_i} - 1\right)\right]
+\label{eq:eta_Ti} \\
+\frac{\dd\eta}{\dd T}\bigg|_{T_i} &= -\eta(T_i)\,\frac{A\,T_m}{T_i^2}
+\label{eq:deta}
+\end{align}
+
+The viscous temperature scale is:
+\begin{equation}
+\Delta T_v = -\frac{\eta(T_i)}{\dd\eta/\dd T\big|_{T_i}}
+  = \frac{T_i^2}{A\,T_m}
+  = \frac{N\,R\,T_i^2}{Q_v}
+\label{eq:DTv}
+\end{equation}
+
+\subsubsection{Lid-base temperature}
+
+The conductive lid extends from the surface down to the depth where
+the temperature contrast from the convective interior equals
+$\theta_{\mathrm{lid}}$ viscous temperature scales:
+\begin{equation}
+\boxed{T_c = T_i - \theta_{\mathrm{lid}}\,\Delta T_v}
+\label{eq:Tc}
+\end{equation}
+with $\theta_{\mathrm{lid}} = 2.24$ (Green et al.\ 2021).
+
+\subsubsection{Alternative: Howell (2021) method}
+
+A simpler analytical estimate sets:
+\begin{equation}
+T_c^{\mathrm{Howell}}
+  = \frac{\sqrt{4\,T_m\,(R/Q_v) + 1} - 1}{2\,(R/Q_v)}
+\end{equation}
+and the conductive base temperature as $T_{\mathrm{cond,base}} = 2\,T_c - T_m$.
+This is faster but less accurate than the Green method for strongly
+internally heated shells.
+
+\subsection{Stage 2: Interface depth from temperature profile}
+
+Given $T_c$, the algorithm scans the numerical temperature profile
+$T_0, T_1, \ldots, T_{N-1}$ from the surface:
+
+\begin{enumerate}[leftmargin=2em]
+\item Find the first index $j$ such that $T_j \geq T_c$.
+\item If $0 < j < N{-}1$, linearly interpolate to find the exact
+      interface depth:
+\begin{equation}
+z_c = z_{j-1} + \frac{T_c - T_{j-1}}{T_j - T_{j-1}}\,(z_j - z_{j-1})
+\label{eq:zc_interp}
+\end{equation}
+\item Set $D_{\mathrm{cond}} = z_c$ and $D_{\mathrm{conv}} = H - z_c$.
+\end{enumerate}
+
+If no node satisfies $T_j \geq T_c$, the entire shell is conductive
+($D_{\mathrm{conv}} = 0$, $\Nu = 1$).
+
+\subsection{Stage 3: Rayleigh and Nusselt numbers}
+
+\subsubsection{Rayleigh number}
+
+The Rayleigh number of the convective sublayer is:
+\begin{equation}
+\Ra = \frac{\rho\,g\,\alpha_{th}\,\Delta T_{\mathrm{conv}}\,
+  D_{\mathrm{conv}}^3}{\kappa\,\bar{\eta}}
+\label{eq:Ra}
+\end{equation}
+where:
+\begin{align}
+\Delta T_{\mathrm{conv}} &= T_m - T_c \\
+\bar{T} &= \tfrac{1}{2}(T_m + T_c) \\
+\rho &= \rho(\bar{T}) = 917\,[1 + 1.6\times10^{-4}\,(273 - \bar{T})] \\
+k &= k(\bar{T}) = 567/\bar{T} \\
+c_p &= c_p(\bar{T}) = 7.49\,\bar{T} + 90 \\
+\kappa &= k/(\rho\,c_p) \quad\text{(thermal diffusivity)} \\
+\bar{\eta} &= \eta(\bar{T}, d_{\mathrm{grain}})
+  \quad\text{(composite viscosity, Eq.~\ref{eq:viscosity_repeat})}
+\end{align}
+
+Convection is active if and only if $\Ra \geq \Ra_{\mathrm{crit}} = 1000$.
+
+\subsubsection{Nusselt number (Green et al.\ 2021)}
+
+For $\Ra \geq \Ra_{\mathrm{crit}}$:
+\begin{equation}
+\boxed{\Nu = C\,\Ra^{\xi}\left(\frac{T_i - T_c}
+  {\Delta T_{\mathrm{conv}}}\right)^{\!\zeta}}
+\label{eq:Nu_green}
+\end{equation}
+with $C = 0.3446$, $\xi = 1/3$ (Solomatov \& Moresi 2000), and
+$\zeta = 4/3$ (internal heating correction; Green et al.\ 2021).
+
+The ratio $(T_i - T_c)/\Delta T_{\mathrm{conv}}$ accounts for the
+fact that internal tidal heating raises the interior temperature $T_i$
+above what would be expected from purely basal heating. When
+$T_i > T_c$ (always true by construction), this ratio is $> 0$ and
+amplifies the Nusselt number. It is clipped to a minimum of 0.01
+for numerical safety.
+
+For $\Ra < \Ra_{\mathrm{crit}}$: $\Nu = 1$ (pure conduction).
+
+\subsection{Stage 4: Conductivity profile modification}
+
+The conductivity profile used in the tridiagonal assembly is modified
+as follows:
+
+\begin{enumerate}[leftmargin=2em]
+\item Start with the base conductivity at each node:
+\begin{equation}
+k_i^{\mathrm{base}} = \frac{567}{T_i}
+\end{equation}
+
+\item Apply porosity reduction in the cold upper shell:
+\begin{equation}
+k_i = \begin{cases}
+  k_i^{\mathrm{base}}\,(1 - f_{\mathrm{porosity}}) & T_i < T_\phi \\
+  k_i^{\mathrm{base}} & T_i \geq T_\phi
+\end{cases}
+\end{equation}
+
+\item Apply the Nusselt enhancement below the conductive--convective
+      interface. For all nodes at or below the interface index $j_c$:
+\begin{equation}
+k_i \leftarrow \Nu_{\mathrm{eff}} \cdot k_i
+  \qquad \text{for } i \geq j_c
+\label{eq:kmod}
+\end{equation}
+where:
+\begin{equation}
+\Nu_{\mathrm{eff}} = \Nu
+\label{eq:Nu_eff}
+\end{equation}
+
+\item Compute half-node conductivities via harmonic mean
+      (Eq.~\ref{eq:harmonic}) for the tridiagonal assembly.
+\end{enumerate}
+
+\subsection{Shared convection closure}
+
+The current 2D implementation uses the same stagnant-lid Nusselt
+enhancement as the 1D solver in every latitude column, with no extra
+surface-temperature ramp. Convective suppression therefore occurs only
+through the temperature-profile scan and the Rayleigh criticality test,
+not through an additional latitude-specific closure.
+
+%======================================================================
+\section{Complete Timestep Algorithm}
+\label{sec:algorithm}
+%======================================================================
+
+Each timestep proceeds as follows:
+
+\begin{enumerate}[leftmargin=2em]
+\item \textbf{Determine time integration parameters.}
+  If $n < N_R = 4$: set $\theta = 1$, $\Delta t_{\mathrm{eff}} = \Delta t/2$.
+  Otherwise: set $\theta = \half$, $\Delta t_{\mathrm{eff}} = \Delta t$.
+
+\item \textbf{Begin Picard loop} ($m = 0, 1, 2$):
+  \begin{enumerate}
+  \item Evaluate $k^{(m)}_i$, $\rho^{(m)}_i$, $c_{p,i}^{(m)}$,
+        $q_{\mathrm{tidal},i}^{(m)}$ at $T^{(m)}$.
+  \item \textbf{Build conductivity profile:}
+    \begin{itemize}
+    \item Compute $T_c$ via Green/Deschamps (Eqs.~\ref{eq:Ti}--\ref{eq:Tc}).
+    \item Scan profile for interface depth $z_c$ (Eq.~\ref{eq:zc_interp}).
+    \item Compute Ra (Eq.~\ref{eq:Ra}) and Nu (Eq.~\ref{eq:Nu_green}).
+    \item Apply porosity and Nusselt modifications to $k$ profile.
+    \item Compute harmonic-mean half-node conductivities.
+    \end{itemize}
+  \item \textbf{Assemble tridiagonal system:}
+    compute $a_i$, $b_i$, $c_i$ (Eqs.~\ref{eq:ai}--\ref{eq:ci})
+    and $d_i$ (Eq.~\ref{eq:rhs}).
+  \item \textbf{Apply boundary conditions:} set row 0 (surface) and
+        row $N{-}1$ (base).
+  \item \textbf{Solve} via Thomas algorithm $\to T^{(m+1)}$.
+  \item \textbf{Check convergence:}
+        $\max_i |T_i^{(m+1)} - T_i^{(m)}| < 0.01$~K.
+  \end{enumerate}
+
+\item \textbf{If Rannacher step} ($n < N_R$): repeat step 2 for the
+      second half-step using $T^{(m+1)}$ as the new initial condition.
+
+\item \textbf{Update shell thickness} via Stefan condition
+      (Eq.~\ref{eq:stefan}).
+
+\item \textbf{Check equilibrium:} if $|\dd H/\dd t| < 10^{-15}$~m/s, halt.
+
+\item Increment $n$ and return to step 1.
+\end{enumerate}
+
+%======================================================================
+\section{Bayesian Importance Reweighting}
+\label{sec:bayes}
+%======================================================================
+
+\subsection{Motivation}
+
+The forward model maps sampled parameters $\boldsymbol{\theta}_i$ to an
+equilibrium conductive lid thickness $D_{\mathrm{cond},i}$. After
+running $N$ Monte Carlo realisations, we wish to update the ensemble
+to reflect the Juno MWR observation
+$D_{\mathrm{cond}}^{\mathrm{obs}} = 29 \pm 10$~km without re-running
+the expensive forward model.
+
+\subsection{Likelihood}
+
+The likelihood of realisation $i$ given the observation is:
+\begin{equation}
+\mathcal{L}_i = P(D^{\mathrm{obs}} \mid D_{\mathrm{cond},i})
+  = \frac{1}{\sqrt{2\pi}\,\sigma_{\mathrm{tot}}}\,
+  \exp\!\left[-\frac{1}{2}
+  \left(\frac{D_{\mathrm{cond},i} - D^{\mathrm{obs}}}
+    {\sigma_{\mathrm{tot}}}\right)^{\!2}\right]
+\end{equation}
+where:
+\begin{equation}
+\sigma_{\mathrm{tot}} = \sqrt{\sigma_{\mathrm{obs}}^2 + \sigma_{\mathrm{model}}^2}
+  = \sqrt{10^2 + 3^2} \approx 10.4\text{~km}
+\end{equation}
+The model discrepancy $\sigma_{\mathrm{model}} = 3$~km accounts for
+numerical resolution and parameterisation uncertainty.
+
+\subsection{Importance weights}
+
+Each realisation receives a normalised importance weight:
+\begin{equation}
+w_i = \frac{\mathcal{L}_i}{\sum_{j=1}^N \mathcal{L}_j}
+\end{equation}
+
+In practice, to avoid numerical underflow, the log-weights are computed
+first:
+\begin{equation}
+\ln w_i = -\frac{1}{2}\left(\frac{D_{\mathrm{cond},i} - D^{\mathrm{obs}}}
+  {\sigma_{\mathrm{tot}}}\right)^{\!2}
+\end{equation}
+then stabilised by subtracting the maximum before exponentiating:
+\begin{equation}
+w_i = \frac{\exp(\ln w_i - \max_j \ln w_j)}
+  {\sum_k \exp(\ln w_k - \max_j \ln w_j)}
+\end{equation}
+
+\subsection{Effective sample size}
+
+The quality of the reweighting is monitored via the effective sample
+size:
+\begin{equation}
+\mathrm{ESS} = \frac{\left(\sum_i w_i\right)^2}{\sum_i w_i^2}
+  = \frac{1}{\sum_i \tilde{w}_i^2}
+\end{equation}
+where $\tilde{w}_i = w_i / \sum_j w_j$ are the normalised weights.
+
+An ESS fraction $\mathrm{ESS}/N > 10\%$ indicates acceptable
+prior--likelihood overlap. If $\mathrm{ESS}/N < 10\%$, the prior
+is too diffuse relative to the likelihood, and the posterior is
+dominated by a few high-weight samples.
+
+\subsection{Weighted posterior statistics}
+
+Posterior percentiles are computed from the weighted empirical CDF.
+Sort the $D_{\mathrm{cond},i}$ values and their weights, compute the
+cumulative weight, and interpolate:
+\begin{equation}
+\hat{q}_p: \quad \sum_{j: D_j \leq \hat{q}_p} w_j = p
+\end{equation}
+
+The posterior median ($p = 0.5$), 68\% interval ($p = 0.16, 0.84$),
+and 90\% interval ($p = 0.05, 0.95$) are reported.
+
+\subsection{Iterative prior tightening}
+
+When the initial prior is broad, the posterior may be poorly resolved.
+The model implements an iterative scheme:
+
+\begin{enumerate}[leftmargin=2em]
+\item Run Monte Carlo with unconstrained (audited) priors.
+\item Compute importance weights and posterior statistics.
+\item Derive tightened priors from the posterior:
+  \begin{itemize}
+  \item $q_{\mathrm{basal}}$: new uniform bounds from posterior
+        [5th, 95th] percentiles.
+  \item $d_{\mathrm{grain}}$: new lognormal centre from posterior median,
+        new $\sigma$ from posterior 68\% log-width.
+  \end{itemize}
+\item Re-run Monte Carlo with tightened priors.
+\item Repeat until the posterior median falls within the target range
+      and $\mathrm{ESS}/N > 10\%$.
+\end{enumerate}
+
+\subsection{Bayes factors for model comparison}
+
+To compare ocean transport scenarios $\mathcal{M}_j$ and
+$\mathcal{M}_k$, the Bayes factor is:
+\begin{equation}
+\mathrm{BF}_{jk}
+  = \frac{P(D^{\mathrm{obs}} \mid \mathcal{M}_j)}
+         {P(D^{\mathrm{obs}} \mid \mathcal{M}_k)}
+  = \frac{\frac{1}{N_j}\sum_i \mathcal{L}_i^{(j)}}
+         {\frac{1}{N_k}\sum_i \mathcal{L}_i^{(k)}}
+\end{equation}
+
+The marginal likelihood for each scenario is the mean likelihood
+across its ensemble, estimated by the arithmetic mean of the
+(unnormalised) weights.
+
+%======================================================================
+\section{Composite Viscosity Reference}
+\label{sec:visc_ref}
+%======================================================================
+
+For completeness, the composite diffusion-creep viscosity used in
+Ra computation and tidal heating:
+\begin{equation}
+\eta(T, d) = \frac{1}{2}\left[
+  \frac{42\,\Omega}{R\,T\,d^2}
+  \left(
+    D_{0v}\,e^{-Q_v/(RT)}
+    + \frac{\pi\,\delta}{d}\,D_{0b}\,e^{-Q_b/(RT)}
+  \right)
+\right]^{-1}
+\label{eq:viscosity_repeat}
+\end{equation}
+
+clipped to $[10^{12},\, 10^{25}]$~Pa$\cdot$s.
+
+\end{document}

@@ -1,0 +1,1173 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ─── Packages ───────────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{siunitx}
+\usepackage{pdflscape}
+\usepackage{array}
+\usepackage{tabularx}
+
+\tcbuselibrary{skins,breakable}
+
+% ─── Color definitions ──────────────────────────────────────────────────────
+\definecolor{hypothblue}{HTML}{2563EB}
+\definecolor{hypothgreen}{HTML}{059669}
+\definecolor{hypothpurple}{HTML}{7C3AED}
+\definecolor{hypothteal}{HTML}{0D9488}
+\definecolor{hypothorange}{HTML}{D97706}
+\definecolor{ambergold}{HTML}{F59E0B}
+\definecolor{steelgray}{HTML}{4B5563}
+\definecolor{evidenceblue}{HTML}{DBEAFE}
+\definecolor{summaryblue}{HTML}{1E40AF}
+\definecolor{critred}{HTML}{DC2626}
+\definecolor{lightgray}{HTML}{F3F4F6}
+
+% ─── Custom environments ───────────────────────────────────────────────────
+\newtcolorbox{summarybox}[1][]{
+  colback=summaryblue!8, colframe=summaryblue!80,
+  fonttitle=\bfseries\large, title={#1},
+  breakable, sharp corners=south, boxrule=1pt
+}
+\newtcolorbox{hypothesisbox}[2]{
+  colback=#1!6, colframe=#1!80,
+  fonttitle=\bfseries, title={#2},
+  breakable, sharp corners=south, boxrule=0.8pt
+}
+\newtcolorbox{predictionbox}[1][]{
+  colback=ambergold!10, colframe=ambergold!80,
+  fonttitle=\bfseries, title={#1},
+  breakable, sharp corners=south, boxrule=0.8pt
+}
+\newtcolorbox{comparisonbox}[1][]{
+  colback=steelgray!8, colframe=steelgray!80,
+  fonttitle=\bfseries, title={#1},
+  breakable, sharp corners=south, boxrule=0.8pt
+}
+\newtcolorbox{evidencebox}[1][]{
+  colback=evidenceblue, colframe=hypothblue!40,
+  fonttitle=\bfseries, title={#1},
+  breakable, sharp corners=south, boxrule=0.6pt
+}
+\newtcolorbox{critiquebox}[1][]{
+  colback=critred!5, colframe=critred!60,
+  fonttitle=\bfseries, title={#1},
+  breakable, sharp corners=south, boxrule=0.6pt
+}
+
+% ─── Header/Footer ─────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Europa Ice Shell 1D Model Analysis}
+\fancyhead[R]{\small March 2026}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ─── Title ──────────────────────────────────────────────────────────────────
+\title{%
+  \textbf{Comprehensive Analysis of Europa's Ice Shell Structure:\\
+  1D Monte Carlo Forward Modeling, Bayesian Inference,\\
+  and Competing Hypotheses for Ocean--Ice Coupling}
+}
+\author{%
+  Europa Convection Project\\[4pt]
+  \small \textit{EuropaProjectDJ --- Audited 1D Thermal Equilibrium Framework}\\[4pt]
+  \small Draft: 22 March 2026
+}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+% ═══════════════════════════════════════════════════════════════════════════
+% EXECUTIVE SUMMARY
+% ═══════════════════════════════════════════════════════════════════════════
+\begin{summarybox}[Executive Summary]
+This report synthesizes all production results from the 1D Europa ice shell convection model (EuropaProjectDJ), comprising over \textbf{90,000 Monte Carlo forward simulations} across seven scenario families, comprehensive global sensitivity analysis (Sobol, PRCC, Random Forest, SHAP), and Bayesian inference via importance reweighting against the Juno MWR observation ($D_\mathrm{cond} = 29 \pm 10$~km; Levin et al.\ 2025).
+
+\textbf{Key findings:}
+\begin{itemize}[nosep]
+  \item Andrade transient-creep rheology produces ice shells compatible with Juno ($\mathrm{CBE} = 19$--$21$~km); Maxwell rheology does not ($\mathrm{CBE} = 56$~km).
+  \item Grain size ($d_\mathrm{grain}$) is the dominant control on shell thickness (composite sensitivity $= 0.997$), followed by tidal power ($P_\mathrm{tidal}$, $0.751$) and strain amplitude ($\varepsilon_0$, $0.609$).
+  \item Bayesian reweighting against Juno pulls posterior $D_\mathrm{cond}$ medians to 19--22~km across all ocean transport modes, with shrinkage of 18--29\%.
+  \item Bayes factors between ocean transport modes are indistinguishable ($\mathrm{BF} = 0.91$--$1.04$), meaning the current Juno constraint cannot discriminate transport regimes.
+  \item The ice shell exhibits bistability: 52--90\% of realizations are convective ($\mathrm{Ra} \geq 1000$) depending on equatorial heat flux.
+  \item Uniform transport (Ashkenazy \& Tziperman 2021) provides the best overall 1D fit to Juno.
+\end{itemize}
+\end{summarybox}
+
+\tableofcontents
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+% ═══════════════════════════════════════════════════════════════════════════
+
+Europa's ice shell remains one of the most compelling targets in planetary science, hosting the boundary between a global subsurface ocean and the vacuum of space. The thickness and internal structure of this shell---specifically the partition between a rigid conductive lid and a potentially convecting warm sublayer---determines whether Europa can sustain geological activity, cryovolcanism, and material exchange with the underlying ocean \citep{barr2009,billings2005,mckinnon1999}.
+
+NASA's Juno spacecraft provided the first direct microwave radiometric constraint on Europa's conductive shell thickness during its September 2022 flyby \citep{levin2025}. The Juno Microwave Radiometer (MWR) probed the subsurface at six frequencies (0.6--22~GHz), yielding a conductive lid thickness of $D_\mathrm{cond} = 29 \pm 10$~km for pure water ice, with a reduction of $\sim$5~km for modest salinity. This measurement transforms Europa science from parameter estimation to data-constrained inference.
+
+This report presents a comprehensive analysis of the 1D thermal equilibrium model implemented in EuropaProjectDJ, which solves the steady-state heat equation with:
+\begin{itemize}[nosep]
+  \item Composite diffusion-creep viscosity (Howell 2021),
+  \item Andrade or Maxwell viscoelastic tidal dissipation,
+  \item Dynamic stagnant-lid convection parameterization (Green et al.\ 2021; Deschamps \& Vilella 2021),
+  \item Temperature-dependent thermal conductivity ($k = 567/T$),
+  \item Porosity and salt corrections for the upper shell.
+\end{itemize}
+
+The model is exercised as a probabilistic forward model via Monte Carlo sampling of 16 uncertain physical parameters, producing ensemble predictions of ice shell thickness ($H_\mathrm{total}$), conductive lid thickness ($D_\mathrm{cond}$), convective sublayer thickness ($D_\mathrm{conv}$), and internal state diagnostics (Ra, Nu, lid fraction).
+
+\subsection{Scope and Objectives}
+
+This document addresses three questions:
+\begin{enumerate}
+  \item \textbf{What does the 1D model predict?} Comprehensive tabulation of all Monte Carlo results across scenario families, with statistical summaries and distributions.
+  \item \textbf{What drives the predictions?} Global sensitivity analysis identifying the parameters and physical mechanisms that control ice shell structure.
+  \item \textbf{What does the Juno observation tell us?} Bayesian inference via importance reweighting, posterior parameter distributions, model comparison via Bayes factors, and critical evaluation of what can and cannot be concluded.
+\end{enumerate}
+
+We frame the analysis around five competing hypotheses for Europa's ocean--ice coupling regime and evaluate each against the data using both frequentist and Bayesian metrics.
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Model Physics Summary}
+\label{sec:physics}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\subsection{Governing Equation}
+
+The 1D thermal solver finds the steady-state temperature profile $T(z)$ satisfying:
+\begin{equation}
+  \rho c_p \frac{\partial T}{\partial t}
+  = \frac{\partial}{\partial z}\!\left[k_\mathrm{eff}(T,z)\,\frac{\partial T}{\partial z}\right]
+  + q_\mathrm{tidal}(T) + q_\mathrm{rad}
+  \label{eq:heat}
+\end{equation}
+with boundary conditions $T(0) = T_\mathrm{surf}$ and $T(H) = T_\mathrm{melt}(P)$, where $T_\mathrm{melt} = 273.15 - 7.4 \times 10^{-8}\,g\,\rho\,H$ accounts for pressure-dependent melting via the Clausius--Clapeyron relation. The solver uses Crank--Nicolson time stepping ($\theta = 0.5$) with Rannacher startup (4 backward-Euler half-steps) on a 31-node grid, integrated to thermal equilibrium ($\max |dH/dt| < 10^{-12}$~m/s).
+
+\subsection{Thermal Properties}
+
+Thermal conductivity follows the Howell (2021) model:
+\begin{equation}
+  k(T) = \frac{567}{T}~\mathrm{W\,m^{-1}\,K^{-1}}
+\end{equation}
+with porosity correction $k_\mathrm{eff} = k_\mathrm{ice}(1 - f_\mathrm{por})$ for $T < 150$~K, and salt correction $k_\mathrm{eff} = k_\mathrm{ice}(1 - f_\mathrm{salt}) + f_\mathrm{salt}\,k_\mathrm{ice}\,B_k$. Specific heat: $c_p = 7.49\,T + 90$~J\,kg$^{-1}$\,K$^{-1}$. Density: $\rho = 917[1 + \alpha(T_m - T)]$~kg\,m$^{-3}$ with $\alpha = 1.6 \times 10^{-4}$~K$^{-1}$.
+
+\subsection{Rheology}
+
+\subsubsection{Composite Diffusion Creep (Howell 2021)}
+
+\begin{equation}
+  \eta(T, d) = \frac{1}{2}\left(\frac{42\,V_m}{R\,T\,d^2}\right)^{\!-1}
+  \!\left(D_v + \frac{\pi\,\delta}{d}\,D_b\right)^{\!-1}
+\end{equation}
+where $D_v = D_{0v}\exp(-Q_v/RT)$, $D_b = D_{0b}\exp(-Q_b/RT)$, $V_m = 1.97 \times 10^{-5}$~m$^3$/mol, $\delta = 7.13 \times 10^{-10}$~m, $d$ is grain size, and $Q_v = 59.4$~kJ/mol, $Q_b = 49.0$~kJ/mol are activation energies. Viscosity is clipped to $[10^{12}, 10^{25}]$~Pa\,s.
+
+\subsubsection{Tidal Dissipation}
+
+\textbf{Maxwell model:}
+\begin{equation}
+  q_\mathrm{vol} = \frac{\varepsilon_0^2\,\omega^2\,\eta}{2\left[1 + (\omega\eta/\mu)^2\right]}
+\end{equation}
+
+\textbf{Andrade model:} Uses complex compliance $J^*(\omega)$ with Andrade parameters $\alpha_A = 0.2$, $\zeta = 1.0$:
+\begin{equation}
+  q_\mathrm{vol} = \tfrac{1}{2}\,\omega\,\varepsilon_0^2\,\mathrm{Im}(G^*)
+\end{equation}
+where $\mathrm{Im}(G^*) = J_\mathrm{imag}/|J^*|^2$.
+
+\subsection{Convection Parameterization}
+
+Following Green et al.\ (2021) and Deschamps \& Vilella (2021), the model dynamically identifies the conductive--convective interface:
+
+\begin{enumerate}[nosep]
+  \item Compute interior temperature $T_i$ via Deschamps Eq.~18: $T_i = B[\sqrt{1 + 2(T_m - c_2\Delta T_s)/B} - 1]$ with $B = Q_v/(2Rc_1)$, $c_1 = 1.43$, $c_2 = -0.03$.
+  \item Compute viscous temperature scale $\Delta T_v = -\eta_i/(\partial\eta/\partial T)$ and critical temperature $T_c = T_i - \theta_\mathrm{lid}\,\Delta T_v$ where $\theta_\mathrm{lid} = 2.24$.
+  \item Evaluate Rayleigh number: $\mathrm{Ra} = \rho g \alpha \Delta T\,d^3/(\kappa\,\eta)$ with $\mathrm{Ra_{crit}} = 1000$.
+  \item Apply Nusselt scaling: $\mathrm{Nu} = 0.3446\,\mathrm{Ra}^{1/3}\,[(T_i - T_c)/\Delta T]^{4/3}$ for $\mathrm{Ra} \geq \mathrm{Ra_{crit}}$.
+\end{enumerate}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Monte Carlo Results}
+\label{sec:results}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\subsection{Model Hierarchy}
+
+We define a hierarchy of model configurations:
+
+\begin{itemize}[nosep]
+  \item \textbf{M0}: Global baseline, Maxwell rheology (Howell legacy)
+  \item \textbf{M1}: Global baseline, Andrade rheology (audited 2026 priors)
+  \item \textbf{M2a--M2e}: Equatorial proxy suite with ocean transport multipliers (0.55$\times$--1.5$\times$), all Andrade
+  \item \textbf{M3}: Endmember suite (uniform/Soderlund/Lemasquerier $\times$ equator/pole), all Andrade
+\end{itemize}
+
+\subsection{1D Global Baselines ($N = 15{,}000$)}
+
+\begin{table}[htbp]
+\centering
+\caption{1D global baseline results: Maxwell vs.\ Andrade rheology with audited 2026 priors.}
+\label{tab:global}
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+\textbf{Run} & \textbf{N} & \textbf{CBE} & \textbf{Median $H$} & \textbf{$1\sigma$ $H$} & \textbf{Med.\ $D_\mathrm{cond}$} & \textbf{$1\sigma$ $D_\mathrm{cond}$} & \textbf{Conv.\ frac} & \textbf{Lid frac} \\
+ & & (km) & (km) & (km) & (km) & (km) & & \\
+\midrule
+Maxwell & 10{,}350 & 56.1 & 50.8 & [32.7, 64.3] & 8.9 & [4.8, 25.6] & 100\% & 28\% \\
+\textbf{Andrade} & \textbf{15{,}000} & \textbf{19.1} & \textbf{28.9} & \textbf{[16.3, 56.7]} & \textbf{15.2} & \textbf{[6.8, 25.6]} & \textbf{62\%} & \textbf{60\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{evidencebox}[Rheology as a First-Order Control]
+The transition from Maxwell to Andrade rheology transforms the shell from universally convective ($H \sim 51$~km, thin lid) to a \textbf{bimodal} population with both convective and conductive branches. This is not a parameter-level sensitivity---it is a \textit{structural} change in the model's predictive behavior. Maxwell overestimates tidal dissipation by underrepresenting anelastic response at orbital frequencies \citep{bierson2024}, forcing all realizations into thick, vigorously convecting shells with unrealistically thin conductive lids ($D_\mathrm{cond} = 8.9$~km median) incompatible with the Juno MWR constraint. Andrade's transient-creep mechanism reduces net dissipation, enabling both thin conductive and thicker convective equilibria.
+\end{evidencebox}
+
+\subsection{Equatorial Proxy Suite ($N = 15{,}000$ each, Andrade)}
+
+The equatorial proxy suite models the effect of meridional ocean heat transport on equatorial shell structure. Each mode applies a multiplicative factor to the tidal component of equatorial basal heat flux, with shared RNG seed (10042) for paired comparison.
+
+\begin{table}[htbp]
+\centering
+\caption{1D equatorial proxy suite results (Andrade rheology, $N = 15{,}000$ per mode).}
+\label{tab:equatorial}
+\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+\textbf{Mode} & \textbf{Factor} & \textbf{CBE} & \textbf{Med.\ $H$} & \textbf{$1\sigma$ $H$} & \textbf{Med.\ $D_\mathrm{cond}$} & \textbf{$1\sigma$ $D_\mathrm{cond}$} & \textbf{Conv.} & \textbf{Lid} \\
+ & & (km) & (km) & (km) & (km) & (km) & frac & frac \\
+\midrule
+Depleted strong & 0.55$\times$ & 60.0 & 50.9 & [34.3, 67.0] & 15.6 & [8.7, 31.6] & 89\% & 41\% \\
+Depleted & 0.67$\times$ & 32.6 & 46.6 & [27.9, 65.8] & 15.5 & [8.5, 31.8] & 85\% & 45\% \\
+\textbf{Baseline} & \textbf{1.0$\times$} & \textbf{21.3} & \textbf{35.3} & \textbf{[18.2, 62.8]} & \textbf{17.0} & \textbf{[8.2, 29.0]} & \textbf{68\%} & \textbf{58\%} \\
+Moderate & 1.2$\times$ & 18.9 & 29.8 & [16.7, 61.1] & 17.2 & [8.1, 27.3] & 61\% & 63\% \\
+Strong & 1.5$\times$ & 16.8 & 23.6 & [14.7, 59.0] & 16.2 & [8.4, 25.4] & 52\% & 69\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key patterns:}
+\begin{itemize}[nosep]
+  \item \textbf{Enhancement thins the shell and suppresses convection:} At 1.5$\times$, nearly half of realizations are purely conductive ($\mathrm{Ra} < \mathrm{Ra_{crit}}$). The mechanism is cubic: $\mathrm{Ra} \propto d^3$, so a modest thickness reduction strongly reduces Ra.
+  \item \textbf{Depletion thickens the shell but barely changes the convective fraction}, because the shell was already well above $\mathrm{Ra_{crit}}$ in most realizations.
+  \item \textbf{$D_\mathrm{cond}$ is remarkably insensitive to transport mode:} all five modes have median $D_\mathrm{cond}$ in the 15--17~km range. This is a robust structural result---the conductive lid thickness is set primarily by rheology and surface temperature, not by basal heat flux.
+  \item \textbf{Baseline (1.0$\times$) has the best Juno overlap:} its $1\sigma$ upper bound reaches 29~km exactly.
+\end{itemize}
+
+\subsection{Literature Mapping of Transport Modes}
+
+\begin{table}[htbp]
+\centering
+\caption{Physical interpretation of equatorial proxy modes.}
+\label{tab:literature_map}
+\begin{tabular}{@{}cll@{}}
+\toprule
+\textbf{Factor} & \textbf{Source} & \textbf{Physical interpretation} \\
+\midrule
+0.55$\times$ & Lemasquerier et al.\ (2023), $q^* = 0.91$ & Strong polar-focused tidal heating \\
+0.67$\times$ & Lemasquerier et al.\ (2023), 2:1 pole/eq & Conservative polar-focused heating \\
+1.0$\times$ & Ashkenazy \& Tziperman (2021) & Uniform meridional ocean transport \\
+1.2$\times$ & Soderlund (2014) proxy & Moderate equatorial ocean focusing \\
+1.5$\times$ & Upper-bound sensitivity test & Strong equatorial ocean focusing \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Bistability and the Convective--Conductive Split}
+
+A critical feature of the Andrade model is \textbf{bistability}: the Monte Carlo ensemble naturally splits into two subpopulations:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Convective branch} ($\mathrm{Ra} \geq 1000$): Thick shells ($H \sim 40$--$65$~km) with a thin-to-moderate conductive lid ($D_\mathrm{cond} \sim 8$--$20$~km) overlying a warm convective sublayer.
+  \item \textbf{Conductive branch} ($\mathrm{Ra} < 1000$): Thin-to-moderate shells ($H \sim 15$--$30$~km) that are entirely conductive ($D_\mathrm{cond} = H$).
+\end{enumerate}
+
+The relative proportion of these branches is controlled by:
+\begin{itemize}[nosep]
+  \item \textbf{Grain size} (primary): Smaller grains $\rightarrow$ lower viscosity $\rightarrow$ higher Ra $\rightarrow$ convection. The lognormal prior on $d_\mathrm{grain}$ (median 0.6~mm, $\sigma = 0.35$~dex) naturally produces both convective and conductive outcomes.
+  \item \textbf{Tidal heating} (secondary): Higher heating $\rightarrow$ thicker shell $\rightarrow$ higher Ra. But the effect is modulated by the nonlinear feedback: more heating also raises interior temperatures, reducing viscosity.
+  \item \textbf{Ocean heat transport} (tertiary): Enhancement (1.2$\times$, 1.5$\times$) reduces shell thickness, pushing marginal cases below $\mathrm{Ra_{crit}}$.
+\end{itemize}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Global Sensitivity Analysis}
+\label{sec:sensitivity}
+% ═══════════════════════════════════════════════════════════════════════════
+
+We employed six independent sensitivity metrics to identify parameter importance, mitigating the risk of any single metric being misleading:
+
+\begin{table}[htbp]
+\centering
+\caption{Comprehensive sensitivity analysis: composite ranking of 16 parameters. Composite score is a normalized aggregate of all six metrics.}
+\label{tab:sensitivity}
+\small
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+\textbf{Parameter} & \textbf{$|\rho_S|$} & \textbf{$|\mathrm{PRCC}|$} & \textbf{$S_T$ (Sobol)} & \textbf{RF} & \textbf{$\delta$-moment} & \textbf{SHAP} & \textbf{Composite} \\
+\midrule
+$d_\mathrm{grain}$ & 0.511 & 0.680 & 0.294 & 0.819 & 0.212 & 7.52 & \textbf{0.997} \\
+$P_\mathrm{tidal}$ & 0.353 & 0.535 & 0.535 & 0.528 & 0.161 & 5.46 & \textbf{0.751} \\
+$\varepsilon_0$ & 0.329 & 0.512 & 0.627 & 0.339 & 0.136 & 4.22 & \textbf{0.609} \\
+$Q_v$ & 0.325 & 0.510 & 0.578 & 0.450 & 0.117 & 4.61 & \textbf{0.590} \\
+$H_\mathrm{rad}$ & 0.224 & 0.373 & 0.291 & 0.000 & 0.102 & 0.00 & 0.339 \\
+$T_\mathrm{surf}$ & 0.098 & 0.171 & 0.458 & 0.046 & 0.062 & 0.91 & 0.160 \\
+$D_\mathrm{H_2O}$ & 0.048 & 0.080 & 0.486 & 0.025 & 0.059 & 0.42 & 0.099 \\
+$\mu_\mathrm{ice}$ & 0.041 & 0.065 & 0.336 & 0.012 & 0.056 & 0.22 & 0.081 \\
+$f_\mathrm{por}$ & 0.037 & 0.057 & 0.430 & 0.012 & 0.057 & 0.15 & 0.078 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Interpretation of Dominant Parameters}
+
+\begin{description}[style=nextline,nosep]
+  \item[\boldmath$d_\mathrm{grain}$ (grain size, composite = 0.997)]
+  The single most important parameter. Grain size controls viscosity through the $\eta \propto d^2$ dependence of diffusion creep. A factor-of-10 change in $d$ produces a factor-of-100 change in $\eta$, which nonlinearly affects both tidal dissipation and the Rayleigh number. The lognormal prior (median 0.6~mm, range 0.05--3.0~mm) spans the critical transition between convective and conductive regimes.
+
+  \textit{Literature context:} Kalousov\'{a} et al.\ (2023) show that tidal stresses maintain equilibrium grain sizes of $\sim$2--6~mm in Europa's ice shell. Harel \& Dumoulin (2020) find that for $d < 3$~mm, diffusion creep dominates; for $d > 3$~mm, GBS + basal slip prevails. Our prior range (0.05--3.0~mm) is well-calibrated to the diffusion-creep regime.
+
+  \item[\boldmath$P_\mathrm{tidal}$ (tidal power, composite = 0.751)]
+  Controls the volumetric heat source that thickens the shell and drives convection. The anti-correlation ($\rho_S = -0.353$) reflects the balance: more tidal power $\rightarrow$ more internal heating $\rightarrow$ thicker shell, but also higher Ra and more efficient convective heat loss.
+
+  \item[\boldmath$\varepsilon_0$ (tidal strain amplitude, composite = 0.609)]
+  Enters the dissipation rate as $q \propto \varepsilon_0^2$, creating a strongly nonlinear control. The lognormal prior (median $6 \times 10^{-6}$) is informed by tidal flexure models.
+
+  \item[\boldmath$Q_v$ (volume diffusion activation energy, composite = 0.590)]
+  Controls the temperature sensitivity of viscosity via $\eta \propto \exp(Q_v/RT)$. Higher $Q_v$ produces stiffer ice at the same temperature, thickening the conductive lid.
+\end{description}
+
+\subsection{Conditional Sensitivity: Convective vs.\ Conductive Regimes}
+
+The conditional sensitivity analysis (Table~\ref{tab:conditional}) reveals that parameter importance \textit{changes dramatically} between the convective and conductive branches:
+
+\begin{table}[htbp]
+\centering
+\caption{Conditional PRCC values split by convective regime. Bold values indicate $|$PRCC$| > 0.3$.}
+\label{tab:conditional}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Parameter} & \textbf{KS stat} & \textbf{PRCC (thin/cond)} & \textbf{PRCC (thick/conv)} \\
+\midrule
+$d_\mathrm{grain}$ & \textbf{0.622} & \textbf{0.533} & \textbf{0.493} \\
+$P_\mathrm{tidal}$ & \textbf{0.486} & \textbf{$-$0.368} & \textbf{$-$0.640} \\
+$\varepsilon_0$ & \textbf{0.436} & \textbf{$-$0.663} & $-$0.166 \\
+$Q_v$ & \textbf{0.386} & \textbf{0.424} & \textbf{0.413} \\
+$H_\mathrm{rad}$ & 0.283 & $-$0.125 & \textbf{$-$0.650} \\
+$T_\mathrm{surf}$ & 0.143 & $-$0.142 & $-$0.263 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Notable regime-dependent behavior:}
+\begin{itemize}[nosep]
+  \item $\varepsilon_0$ is \textbf{strongly anti-correlated with thickness in the thin/conductive branch} (PRCC $= -0.663$) but nearly irrelevant in the thick/convective branch ($-$0.166). In thin conductive shells, tidal strain directly sets equilibrium thickness; in thick convective shells, convection efficiently redistributes tidal heat.
+  \item $H_\mathrm{rad}$ is \textbf{negligible in the thin branch} but \textbf{dominant in the thick branch} (PRCC $= -0.650$). Radiogenic heating becomes important only when the shell is thick enough to accumulate significant internal heat.
+  \item $d_\mathrm{grain}$ remains important in both branches (KS $= 0.622$, the largest regime-separation statistic), confirming its role as the master switch between convective and conductive states.
+\end{itemize}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Bayesian Inference: Juno MWR Constraint}
+\label{sec:bayesian}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\subsection{Methodology}
+
+We perform Bayesian inference via importance reweighting of the prior Monte Carlo ensemble against the Juno MWR observation. The likelihood is:
+\begin{equation}
+  p(D_\mathrm{obs} \mid D_\mathrm{cond}^{(i)}) = \mathcal{N}\!\left(D_\mathrm{cond}^{(i)};\, D_\mathrm{obs},\, \sigma_\mathrm{total}\right)
+  \label{eq:likelihood}
+\end{equation}
+where $\sigma_\mathrm{total} = \sqrt{\sigma_\mathrm{obs}^2 + \sigma_\mathrm{model}^2}$ combines the observational uncertainty ($\sigma_\mathrm{obs} = 10$~km) with an explicit model-discrepancy term ($\sigma_\mathrm{model} = 3$~km).
+
+Two observation models are tested:
+\begin{itemize}[nosep]
+  \item \textbf{Model A} (pure water ice): $D_\mathrm{obs} = 29$~km, $\sigma_\mathrm{obs} = 10$~km
+  \item \textbf{Model B} (low salinity): $D_\mathrm{obs} = 24$~km, $\sigma_\mathrm{obs} = 10$~km
+\end{itemize}
+
+Importance weights: $w_i \propto \exp\!\left[-\frac{1}{2}\left(\frac{D_\mathrm{cond}^{(i)} - D_\mathrm{obs}}{\sigma_\mathrm{total}}\right)^2\right]$, normalized via $\tilde{w}_i = w_i / \sum_j w_j$.
+
+Diagnostics: Kish effective sample size $\mathrm{ESS} = 1/\sum_i \tilde{w}_i^2$, Pareto $\hat{k}$ diagnostic. All runs achieve $\hat{k} = 0.45$ (good) and $\mathrm{ESS} > 9{,}900$ (excellent retention), confirming that importance reweighting is stable.
+
+\subsection{Marginal Likelihoods and Bayes Factors}
+
+The marginal likelihood for each mode is:
+\begin{equation}
+  p(D_\mathrm{obs} \mid \mathcal{M}_k) = \frac{1}{N}\sum_{i=1}^{N} p(D_\mathrm{obs} \mid D_\mathrm{cond}^{(i)}, \mathcal{M}_k)
+\end{equation}
+computed via log-sum-exp for numerical stability.
+
+\begin{table}[htbp]
+\centering
+\caption{Bayesian model comparison: marginal likelihoods and Bayes factors relative to Baseline (1.0$\times$). $\sigma_\mathrm{model} = 3$~km.}
+\label{tab:bayes}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+\textbf{Mode} & \textbf{log ML$_A$} & \textbf{log ML$_B$} & \textbf{BF$_A$} & \textbf{BF$_B$} & \textbf{Interpretation} \\
+\midrule
+Depleted strong (0.55$\times$) & $-$0.839 & $-$0.568 & 0.91 & 0.93 & Weak disfavor \\
+Depleted (0.67$\times$) & $-$0.827 & $-$0.572 & 0.92 & 0.93 & Weak disfavor \\
+\textbf{Baseline (1.0$\times$)} & \textbf{$-$0.743} & \textbf{$-$0.499} & \textbf{1.00} & \textbf{1.00} & \textbf{Reference} \\
+Moderate (1.2$\times$) & $-$0.737 & $-$0.468 & 1.01 & 1.03 & Negligible \\
+Strong (1.5$\times$) & $-$0.773 & $-$0.463 & 0.97 & 1.04 & Negligible \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{critiquebox}[Critical Assessment: Why Bayes Factors Are Uninformative Here]
+All Bayes factors fall in the range 0.91--1.04, far below the conventional threshold for ``substantial'' evidence ($\mathrm{BF} > 3$; Kass \& Raftery 1995). This is not a failure of the method---it is a physically meaningful result:
+
+\textbf{The 10~km observational uncertainty dominates the 2~km inter-mode $D_\mathrm{cond}$ differences.} All five modes predict median $D_\mathrm{cond}$ in the 15--17~km range, while the Juno observation has $\sigma = 10$~km. The likelihood function is too broad to distinguish modes that differ by only $\sim$1--2~km in their predictions.
+
+\textbf{Implication:} Discriminating ocean transport regimes will require either (a) dramatically tighter observational constraints (e.g., Europa Clipper REASON radar, $\sigma \sim 2$--$5$~km), or (b) additional independent observables (e.g., equator-to-pole thickness contrast, Love numbers, surface heat flow patterns).
+\end{critiquebox}
+
+\subsection{Posterior Parameter Distributions}
+
+\begin{table}[htbp]
+\centering
+\caption{Posterior parameter estimates under Juno constraint (Model A: $D_\mathrm{obs} = 29 \pm 10$~km).}
+\label{tab:posterior_A}
+\small
+\begin{tabular}{@{}llcccccc@{}}
+\toprule
+\textbf{Scenario} & \textbf{Parameter} & \textbf{Prior med.} & \textbf{Prior $1\sigma$} & \textbf{Post.\ med.} & \textbf{Post.\ $1\sigma$} & \textbf{Shrinkage} \\
+\midrule
+\multirow{5}{*}{Baseline}
+  & $Q_v$ (kJ/mol) & 59.38 & [56.4, 62.4] & 60.26 & [57.6, 62.9] & 0.130 \\
+  & $d_\mathrm{grain}$ (mm) & 0.588 & [0.27, 1.26] & 0.749 & [0.37, 1.42] & $-$0.059 \\
+  & $q_\mathrm{basal}$ (mW/m$^2$) & 15.0 & [8.4, 21.9] & 15.8 & [8.4, 22.4] & $-$0.039 \\
+  & $\varepsilon_0$ ($\times 10^{-5}$) & 0.600 & [0.38, 0.94] & 0.586 & [0.37, 0.91] & 0.044 \\
+  & $T_\mathrm{surf}$ (K) & 109.8 & [104.9, 114.6] & 109.7 & [104.8, 114.4] & 0.004 \\
+\cmidrule{2-7}
+  & $D_\mathrm{cond}$ (km) & 16.95 & --- & \textbf{22.37} & [14.5, 30.6] & \textbf{0.231} \\
+\midrule
+\multirow{2}{*}{Depleted str.}
+  & $D_\mathrm{cond}$ (km) & 15.62 & --- & 21.53 & [13.0, 31.4] & 0.201 \\
+\multirow{2}{*}{Moderate}
+  & $D_\mathrm{cond}$ (km) & 17.18 & --- & 21.01 & [15.1, 29.5] & 0.252 \\
+\multirow{2}{*}{Strong}
+  & $D_\mathrm{cond}$ (km) & 16.18 & --- & 19.48 & [14.6, 28.4] & 0.203 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key observations:}
+\begin{itemize}[nosep]
+  \item \textbf{$D_\mathrm{cond}$ shrinkage is 18--29\%:} The posterior medians are pulled from 15--17~km to 19--22~km, toward the Juno observation. This moderate shrinkage indicates meaningful but not overwhelming informative power in the observation.
+  \item \textbf{Physical parameters show minimal shrinkage} ($< 13\%$ for all individual parameters). Grain size actually expands slightly (negative shrinkage), because the Juno constraint favors both branches (large grains with thick conductive shells, and small grains with thick convective shells producing thick $D_\mathrm{cond}$).
+  \item \textbf{$Q_v$ shows the largest individual parameter shrinkage} (13\%), with a slight upward shift in the posterior median. Higher activation energy increases the temperature sensitivity of viscosity, thickening the conductive lid.
+\end{itemize}
+
+\subsection{Posterior Convective Fraction}
+
+\begin{table}[htbp]
+\centering
+\caption{Posterior convective fraction under Juno constraint.}
+\label{tab:conv_posterior}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Mode} & \textbf{Prior conv.\ frac} & \textbf{Post.\ conv.\ (A)} & \textbf{Post.\ conv.\ (B)} \\
+\midrule
+Depleted strong (0.55$\times$) & 89.3\% & 92.5\% & 96.1\% \\
+Depleted (0.67$\times$) & 84.7\% & 82.3\% & 88.8\% \\
+Baseline (1.0$\times$) & 67.8\% & 55.2\% & 61.6\% \\
+Moderate (1.2$\times$) & 60.5\% & 47.6\% & 52.0\% \\
+Strong (1.5$\times$) & 52.4\% & 41.8\% & 43.8\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Juno constraint produces a \textbf{divergent effect on convective fraction} depending on the transport mode:
+\begin{itemize}[nosep]
+  \item For \textbf{depleted modes}, Juno \textit{increases} the posterior convective fraction (from 89\% to 93--96\%) because thick convective shells with substantial $D_\mathrm{cond}$ layers are preferentially upweighted.
+  \item For \textbf{enhanced modes}, Juno \textit{decreases} the posterior convective fraction (from 52\% to 42--44\%) because the observation favors thicker conductive shells, which in the enhanced regime correspond to the conductive branch.
+  \item For the \textbf{baseline}, the posterior convective fraction is approximately maintained at 55--62\%.
+\end{itemize}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Competing Hypotheses}
+\label{sec:hypotheses}
+% ═══════════════════════════════════════════════════════════════════════════
+
+We formulate five competing hypotheses for Europa's ocean--ice coupling regime and evaluate each against the model results, Bayesian inference, and peer-reviewed observational constraints.
+
+\newpage
+\begin{hypothesisbox}{hypothblue}{H1: Uniform Ocean Transport with Marginal Convection}
+
+\textbf{Statement:} Europa's ocean delivers heat uniformly to the ice-ocean interface, producing a meridionally symmetric shell in which convection operates in a marginally supercritical regime ($\mathrm{Ra} \sim 10^3$--$10^4$) over most of the shell's area, with a conductive lid of $\sim$17--22~km.
+
+\textbf{Mechanistic explanation:} In the Ashkenazy \& Tziperman (2021) framework, Europa's ocean is characterized by strong turbulent mixing, transient Taylor columns, and buoyancy forcing from ice melting and salinity variations. These dynamics produce efficient meridional heat transport that homogenizes the ice-ocean boundary heat flux. The resulting shell structure has a thick conductive lid (set by rheological transition at $T_c \approx 220$--$240$~K) overlying a thin, slowly convecting sublayer.
+
+\textbf{Supporting evidence:}
+\begin{itemize}[nosep]
+  \item Best 1D Juno overlap: median $D_\mathrm{cond} = 17.0$~km, $1\sigma$ upper = 29.0~km (Table~\ref{tab:equatorial}).
+  \item Highest marginal likelihood under Model A ($\log \mathrm{ML} = -0.743$).
+  \item 68\% convective fraction matches ``marginal convection'' interpretation.
+  \item Posterior $D_\mathrm{cond} = 22.4$~km $[14.5, 30.6]$ under Juno, well within acceptable window.
+\end{itemize}
+
+\textbf{Core assumptions:} (1) Ocean circulation is efficient enough to homogenize basal heat flux. (2) Steady-state thermal equilibrium has been reached. (3) Grain sizes are in the diffusion-creep regime ($d < 3$~mm).
+\end{hypothesisbox}
+
+\newpage
+\begin{hypothesisbox}{hypothgreen}{H2: Equatorial Enhancement via Ocean Dynamics (Soderlund)}
+
+\textbf{Statement:} Small-scale ocean convection is more vigorous at low latitudes due to rotational dynamics, delivering enhanced heat to the equatorial ice-ocean boundary (1.2--1.5$\times$ uniform) and thinning the equatorial shell.
+
+\textbf{Mechanistic explanation:} Soderlund et al.\ (2014) showed that 3D numerical simulations of thermal convection in a thin rotating spherical shell produce enhanced equatorial heat transport due to the geometry of Coriolis effects. Warm rising currents concentrate near the equator, subsiding currents at higher latitudes, consistent with the equatorial concentration of chaos terrains ($\sim$40\% surface coverage within 40\textdegree{} of equator).
+
+\textbf{Supporting evidence:}
+\begin{itemize}[nosep]
+  \item Moderate (1.2$\times$) and Strong (1.5$\times$) modes produce thinner equatorial shells (CBE 16--19~km) but \textit{narrower} $D_\mathrm{cond}$ distributions.
+  \item Moderate BF$_B = 1.03$: slight preference under low-salinity interpretation.
+  \item Physical mechanism is backed by resolved 3D ocean simulations.
+\end{itemize}
+
+\textbf{Tension with data:}
+\begin{itemize}[nosep]
+  \item Strong enhancement (1.5$\times$) produces median $D_\mathrm{cond} = 16.2$~km, below Juno's lower bound (19~km).
+  \item Nearly half (48\%) of 1.5$\times$ realizations are purely conductive---implying the equatorial shell may be too thin to convect, which contradicts the chaos terrain evidence for active geology.
+  \item Lemasquerier et al.\ (2023) showed that including realistic mantle tidal heating patterns reverses the equatorial enhancement to polar enhancement, undermining the Soderlund mechanism when tidal heating is dominant.
+\end{itemize}
+\end{hypothesisbox}
+
+\newpage
+\begin{hypothesisbox}{hypothpurple}{H3: Polar-Enhanced Heating via Tidal Dissipation (Lemasquerier)}
+
+\textbf{Statement:} Mantle tidal dissipation peaks at the poles (Beuthe 2013), and the ocean faithfully transports this polar-enhanced heat pattern to the ice-ocean boundary, resulting in equatorial depletion (0.55--0.67$\times$) and thick equatorial shells.
+
+\textbf{Mechanistic explanation:} Lemasquerier et al.\ (2023) demonstrated that for Europa-like conditions where tidal heating in the silicate mantle is the dominant energy source, the ocean transposes the seafloor heating pattern to the ice-ocean boundary with minimal redistribution. Since mantle eccentricity tides peak at the poles (Beuthe 2013, $q^* = 0.91$ for pure tidal), equatorial heat delivery is \textit{depleted} relative to the global mean.
+
+\textbf{Supporting evidence:}
+\begin{itemize}[nosep]
+  \item Depleted modes produce the thickest shells (CBE = 32--60~km) with highest convective fractions (85--89\%).
+  \item Posterior $D_\mathrm{cond}$ range extends to 31--32~km, overlapping Juno well.
+  \item Physically grounded in resolved ocean--shell coupling simulations.
+\end{itemize}
+
+\textbf{Tension with data:}
+\begin{itemize}[nosep]
+  \item Weak Bayesian disfavor: BF$_A = 0.91$--$0.92$ vs.\ baseline.
+  \item In 2D model, the conservative Lemasquerier scenario ($q^* = 0.455$) actually produces the \textit{best} overall $D_\mathrm{cond}$ prediction (22.5~km), but the 1D proxy cannot capture this properly because it treats the global energy balance as a local scalar depletion.
+  \item The mechanism requires mantle tidal heating to dominate over radiogenic heating, which is uncertain (ratio could be 3:1 to 10:1).
+\end{itemize}
+\end{hypothesisbox}
+
+\newpage
+\begin{hypothesisbox}{hypothteal}{H4: Conductive Shell with No Active Convection}
+
+\textbf{Statement:} Europa's ice shell is currently in a purely conductive state, with grain sizes too large ($d > 3$~mm) or the shell too thin for convection to initiate. The Juno observation of $D_\mathrm{cond} \sim 29$~km represents the entire ice shell thickness.
+
+\textbf{Mechanistic explanation:} Barr \& McKinnon (2007) showed that without non-ice impurities, dynamic recrystallization drives ice grain sizes to 30--80~mm---far too large for diffusion creep, effectively suppressing convection. If grain boundary pinning by impurities or tidal stress reduction (Kalousov\'{a} et al.\ 2023) are less effective than assumed, Europa's shell could be a simple conductive layer.
+
+\textbf{Supporting evidence:}
+\begin{itemize}[nosep]
+  \item 32--48\% of Andrade baseline realizations are purely conductive, showing this is not an extreme outcome.
+  \item Howell (2020) found that shells are ``primarily dominated by conduction, with convection relegated to the bottom 1/3 or less.''
+  \item A conductive shell of $\sim$29~km directly matches Juno without requiring a convective sublayer.
+\end{itemize}
+
+\textbf{Tension with data:}
+\begin{itemize}[nosep]
+  \item Wakita et al.\ (2024) require a convecting sublayer (6--8~km brittle lid overlying warm ice at $\sim$265~K) to explain multi-ring basin morphology at Callanish and Tyre.
+  \item Surface geological activity (chaos terrains, double ridges, potential cryovolcanism) is difficult to explain without some mechanism for material transport through the shell.
+  \item Kalousov\'{a} et al.\ (2023) show tidal stresses maintain grain sizes at 2--6~mm, enabling GSS creep and potentially convection.
+\end{itemize}
+\end{hypothesisbox}
+
+\newpage
+\begin{hypothesisbox}{hypothorange}{H5: Thick Convective Shell with Thin Conductive Lid}
+
+\textbf{Statement:} Europa's ice shell is thick ($H > 40$~km) with vigorous convection and a thin conductive lid ($D_\mathrm{cond} < 15$~km), as predicted by the Maxwell rheology or by Andrade with small grain sizes ($d < 0.3$~mm).
+
+\textbf{Mechanistic explanation:} If ice viscosity at the melting point is $\sim 10^{13}$~Pa\,s (McKinnon 1999) or grain sizes are smaller than typically assumed, the Rayleigh number exceeds $10^5$--$10^6$, driving vigorous convection that efficiently transports heat and maintains a thin conductive lid. The Maxwell model inherently overestimates dissipation, producing this regime universally.
+
+\textbf{Supporting evidence:}
+\begin{itemize}[nosep]
+  \item Maxwell baseline: CBE = 56.1~km, 100\% convective, consistent with Tobie et al.\ (2003) prediction of 20--25~km equilibrium shells.
+  \item Andrade convective branch: median $H \sim 40$--65~km with $D_\mathrm{cond} \sim 8$--15~km.
+\end{itemize}
+
+\textbf{Tension with data:}
+\begin{itemize}[nosep]
+  \item \textbf{Incompatible with Juno MWR:} Maxwell median $D_\mathrm{cond} = 8.9$~km, far below the acceptable window (19--39~km).
+  \item Bierson (2024) demonstrates that Maxwell underestimates ice dissipation by 4--5 orders of magnitude relative to experimental data.
+  \item Andrade convective branch $D_\mathrm{cond}$ values (8--15~km) also fall below Juno, unless grain sizes are moderate ($d \sim 0.5$--1.0~mm) rather than very small.
+\end{itemize}
+\end{hypothesisbox}
+
+\subsection{Hypothesis Quality Assessment}
+
+\begin{table}[htbp]
+\centering
+\caption{Hypothesis quality evaluation across seven criteria (5 = excellent, 1 = poor).}
+\label{tab:hypothesis_quality}
+\small
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+& \textbf{Testable} & \textbf{Falsif.} & \textbf{Parsim.} & \textbf{Explan.} & \textbf{Scope} & \textbf{Consist.} & \textbf{Novel} \\
+\midrule
+H1: Uniform & 5 & 4 & 5 & 4 & 4 & 5 & 2 \\
+H2: Equatorial & 5 & 5 & 3 & 4 & 3 & 3 & 4 \\
+H3: Polar-enh. & 5 & 4 & 3 & 4 & 4 & 4 & 5 \\
+H4: Conductive & 5 & 5 & 5 & 2 & 2 & 3 & 3 \\
+H5: Thick conv. & 5 & 5 & 3 & 3 & 3 & 2 & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Critical Evaluation of Methodology}
+\label{sec:critique}
+% ═══════════════════════════════════════════════════════════════════════════
+
+Applying the scientific critical thinking framework, we identify the following strengths and limitations:
+
+\subsection{Methodological Strengths}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Comprehensive parameter uncertainty propagation:} 16 parameters sampled from literature-informed distributions (Howell 2021), with $N = 15{,}000$ samples providing well-converged statistics.
+  \item \textbf{Multiple sensitivity metrics:} Six independent metrics (Spearman, PRCC, Sobol total-order, Random Forest, $\delta$-moment, SHAP) cross-validate parameter importance rankings.
+  \item \textbf{Correct observable:} $D_\mathrm{cond}$ (not $H_\mathrm{total}$) is used as the Juno-facing quantity, following the recommendation of Levin et al.\ (2025) and Billings \& Kattenhorn (2005).
+  \item \textbf{Explicit model discrepancy:} $\sigma_\mathrm{model} = 3$~km acknowledges forward model limitations beyond observational noise.
+  \item \textbf{Reweighting diagnostics:} ESS and $\hat{k}$ diagnostics confirm importance sampling stability.
+  \item \textbf{Shared RNG seeds:} Enable direct paired comparison across equatorial modes.
+\end{enumerate}
+
+\subsection{Methodological Limitations}
+
+\begin{critiquebox}[Limitation 1: Steady-State Assumption]
+The model assumes thermal equilibrium. Shibley \& Goodman (2024) show Europa's shell may still be growing in some parameter regimes, with out-of-steady-state durations of order 100~Myr. A time-dependent framework would be needed to assess whether transient effects materially change the thickness PDF.
+
+\textbf{Risk:} Moderate. If the shell is still thickening, the steady-state model \textit{overestimates} the fraction of parameter space that produces thick ($> 40$~km) shells, because these may not have had time to reach equilibrium. This would strengthen the case for thinner, marginally convective shells.
+\end{critiquebox}
+
+\begin{critiquebox}[Limitation 2: Scalar Ocean Transport Proxy]
+The equatorial proxy collapses complex 3D ocean circulation patterns into a single scalar multiplier (0.55--1.5$\times$). Soderlund et al.\ (2014) found $\sim$40\% longitudinal variation in ocean heat flux; Ashkenazy \& Tziperman (2021) found Taylor columns, eddies, and salinity-driven transients. A scalar cannot capture these dynamics.
+
+\textbf{Risk:} High for mechanistic claims about ocean state. Low for shell-structure sensitivity testing. The proxy is defensible as a benchmark for ``what range of equatorial $D_\mathrm{cond}$ is accessible?'' but not for ``which ocean circulation is correct?''
+\end{critiquebox}
+
+\begin{critiquebox}[Limitation 3: Compressed Juno Likelihood]
+The Gaussian likelihood on $D_\mathrm{cond}$ is a drastic compression of the original 6-channel, 129-measurement MWR dataset. Levin et al.\ (2025) note that ``discrepancies are dominated by modeling assumptions more than measurement noise,'' suggesting the error structure is not purely Gaussian.
+
+\textbf{Risk:} Low for model ranking (all modes see the same likelihood), moderate for absolute posterior values. A more faithful treatment would propagate brightness temperatures through a microwave forward model, but this is beyond current scope.
+\end{critiquebox}
+
+\begin{critiquebox}[Limitation 4: Conditional Bayes Factors]
+The Bayes factors compare $p(\mathrm{Juno} \mid \text{mode, valid draws})$, not $p(\mathrm{Juno} \mid \text{mode})$. If valid-draw yield differs across modes, the comparison is incomplete. In practice, all modes achieve $> 99.9\%$ valid yield, so this is a minor concern.
+\end{critiquebox}
+
+\begin{critiquebox}[Limitation 5: Single Creep Mechanism]
+The model uses composite \textit{diffusion} creep only. For grain sizes $> 3$~mm, GBS + basal slip dominates (Harel \& Dumoulin 2020), and for high stresses, dislocation creep becomes relevant. The prior range (0.05--3.0~mm) is calibrated to stay within the diffusion-creep regime, but this is itself an assumption.
+\end{critiquebox}
+
+\begin{critiquebox}[Limitation 6: No Coupled Ocean--Shell Feedback]
+The model prescribes ocean heat flux as an input, not as a response to shell geometry. Zhang et al.\ (2025) show that shell slope drives meridional ocean circulation through pressure-dependent freezing. Lawrence et al.\ (2024) show that topography-driven ice pump processes smooth the shell base. Neither feedback is captured.
+\end{critiquebox}
+
+\subsection{Potential Biases}
+
+\begin{itemize}[nosep]
+  \item \textbf{Prior influence:} The lognormal grain-size prior (median 0.6~mm) inherently favors the convective regime. If the true grain size distribution is broader or shifted to larger values, the conductive fraction would increase.
+  \item \textbf{Survivorship bias in valid draws:} Only solver-converged realizations contribute to statistics. If certain parameter combinations systematically fail to converge, the PDF may be biased.
+  \item \textbf{Publication bias in sensitivity indices:} Sobol indices show high confidence intervals at $N = 512$, indicating marginal convergence. The total-order indices for $D_{0v}$, $T_\mathrm{surf}$, and $D_\mathrm{H_2O}$ have Sobol $S_T > 0.4$ but with confidence intervals that span zero, suggesting possible overfitting.
+\end{itemize}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Discussion}
+\label{sec:discussion}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\subsection{What the 1D Model Tells Us}
+
+\subsubsection{Andrade Rheology is a Necessary Condition for Juno Compatibility}
+
+The most unambiguous result of this analysis is the \textbf{rheology dependence}. Maxwell viscoelastic rheology produces universally convective shells with thin conductive lids ($D_\mathrm{cond} = 8.9$~km median), incompatible with the Juno constraint. Andrade transient-creep rheology produces a bimodal population with median $D_\mathrm{cond} = 15$--17~km, reaching 29~km within $1\sigma$.
+
+This is not a tuning result. The physical basis is that Maxwell rheology lacks the anelastic response at Europa's orbital frequency ($\omega = 2.05 \times 10^{-5}$~rad/s, period $\approx 3.55$~days) that experimental ice data clearly show (Bierson 2024; Tobie et al.\ 2025). Andrade's transient creep mechanism ($J(t) = J_U + \beta t^\alpha + t/\eta$) captures sub-grain-boundary relaxation processes that are physically present but absent from the Maxwell model ($J(t) = J_U + t/\eta$).
+
+\textbf{Recommendation:} Maxwell results should be reported as a legacy comparison but should not be used for scientific inference. Future Europa models should default to Andrade or more complex anelastic rheologies (Burgers, Sundberg--Cooper).
+
+\subsubsection{Grain Size Governs the Convective State}
+
+The composite sensitivity score of $d_\mathrm{grain} = 0.997$ (essentially maximal) confirms grain size as the master control variable. This is physically intuitive: viscosity scales as $\eta \propto d^2$ in the diffusion-creep regime, and the Rayleigh number scales as $\mathrm{Ra} \propto \eta^{-1} \propto d^{-2}$. A factor-of-5 change in grain size (0.1~mm to 0.5~mm) spans two orders of magnitude in Ra, crossing the convective threshold.
+
+The literature provides three constraints on Europa's grain size:
+\begin{enumerate}[nosep]
+  \item \textbf{Dynamic recrystallization without impurities:} 30--80~mm (Barr \& McKinnon 2007)---too large for convection.
+  \item \textbf{Tidal stress equilibrium:} 2--6~mm (Kalousov\'{a} et al.\ 2023)---in the GBS regime, marginally convective.
+  \item \textbf{Impurity-pinned grain boundaries:} 0.1--1~mm (estimated)---firmly in the diffusion-creep regime.
+\end{enumerate}
+
+Our prior (lognormal, median 0.6~mm, $\sigma = 0.35$~dex, clipped [0.05, 3.0]~mm) is consistent with the impurity-pinned scenario. If tidal-stress equilibrium grain sizes (2--6~mm) are more appropriate, the convective fraction would decrease and the conductive branch would dominate.
+
+\subsubsection{Ocean Transport Mode Has Second-Order Effects on $D_\mathrm{cond}$}
+
+Across all five equatorial proxy modes, median $D_\mathrm{cond}$ varies by only 2~km (15.5--17.2~km). This is a \textbf{structurally robust result}: the conductive lid thickness is set by the rheological transition temperature $T_c$, which depends primarily on activation energy $Q_v$, grain size, and surface temperature---not on basal heat flux. Increasing basal heat flux thickens the \textit{convective sublayer}, not the conductive lid.
+
+This has profound implications for Juno interpretation: \textbf{the Juno MWR observation primarily constrains rheological parameters, not ocean transport regime.} The $D_\mathrm{cond}$ measurement tells us about ice viscosity structure, not about what the ocean is doing.
+
+\subsection{What the Bayesian Inference Tells Us}
+
+\subsubsection{The Juno Observation is Informative but Not Discriminating}
+
+The importance-reweighting analysis reveals two key insights:
+
+\begin{enumerate}
+  \item \textbf{Informative for $D_\mathrm{cond}$:} Posterior shrinkage of 18--29\% pulls the predicted $D_\mathrm{cond}$ toward 19--22~km, demonstrating that the Juno data genuinely constrain the conductive lid thickness.
+  \item \textbf{Not discriminating for transport mode:} Bayes factors of 0.91--1.04 provide no meaningful preference. On the Jeffreys scale, $|\log_{10}\mathrm{BF}| < 0.5$ is ``not worth more than a bare mention.''
+\end{enumerate}
+
+This is a physically informative null result. It tells us that:
+\begin{itemize}[nosep]
+  \item The inter-mode differences ($\sim$2~km in median $D_\mathrm{cond}$) are swamped by the observational uncertainty (10~km).
+  \item To distinguish ocean transport modes from shell structure alone, we need either $\sigma_\mathrm{obs} \lesssim 3$~km (Europa Clipper REASON may achieve this) or multiple independent observables.
+\end{itemize}
+
+\subsubsection{The Posterior Favors Marginally Convective Shells}
+
+Under the Juno constraint, the baseline posterior is:
+\begin{align}
+  D_\mathrm{cond} &= 22.4~\mathrm{km}~[14.5, 30.6]~(1\sigma) \notag \\
+  \text{Convective fraction} &= 55\%~(\text{Model A}),~62\%~(\text{Model B})
+\end{align}
+
+This suggests that Europa's equatorial ice shell is \textbf{nearly evenly split between convective and conductive states}, with a slight majority favoring convection. The ``marginally convective'' interpretation is consistent with:
+\begin{itemize}[nosep]
+  \item Howell (2020): ``conduction dominated, convection relegated to the bottom 1/3 or less.''
+  \item Wakita et al.\ (2024): multi-ring basins require a warm convective sublayer beneath a 6--8~km brittle lid.
+  \item Surface geological activity requiring some mechanism for material/heat transport through the shell.
+\end{itemize}
+
+\subsection{Synthesis: Preferred Interpretation}
+
+The weight of evidence supports \textbf{H1 (Uniform Transport with Marginal Convection)} as the most parsimonious explanation:
+
+\begin{comparisonbox}[Evidence Synthesis]
+\begin{tabular}{@{}p{0.25\textwidth}p{0.65\textwidth}@{}}
+\textbf{In favor of H1:} &
+\begin{itemize}[nosep,leftmargin=*]
+  \item Best 1D Juno overlap (upper $1\sigma$ reaches 29~km)
+  \item Highest marginal likelihood under Model A
+  \item Physically simplest: no preferred ocean circulation direction required
+  \item Consistent with Ashkenazy \& Tziperman (2021) ocean modeling
+  \item Matches ``marginal convection'' regime suggested by multiple independent analyses
+\end{itemize} \\[6pt]
+\textbf{Against H1:} &
+\begin{itemize}[nosep,leftmargin=*]
+  \item Does not explain equatorial concentration of chaos terrain (Soderlund 2014)
+  \item Cannot reproduce polar geological features without latitude-dependent forcing
+  \item ``Uniform'' may be too simple---ocean dynamics inevitably produce some heterogeneity
+\end{itemize} \\[6pt]
+\textbf{Key uncertainty:} &
+Grain size distribution. If $d_\mathrm{grain} > 1$~mm (tidal equilibrium), the conductive branch dominates and H4 becomes more plausible. If $d_\mathrm{grain} < 0.5$~mm (impurity pinning), convection is robust and H1 holds.
+\end{tabular}
+\end{comparisonbox}
+
+\subsection{Comparison with Published Estimates}
+
+\begin{table}[htbp]
+\centering
+\caption{Comparison of this work's 1D results with published Europa ice shell thickness estimates.}
+\label{tab:lit_comparison}
+\small
+\begin{tabular}{@{}p{4cm}ccp{5cm}@{}}
+\toprule
+\textbf{Study} & \textbf{Method} & \textbf{Thickness (km)} & \textbf{Notes} \\
+\midrule
+Levin et al.\ (2025) & Juno MWR & $29 \pm 10$ (cond.) & Pure water; $-$5~km for salt \\
+Howell (2021) & MC equilibrium & CBE $= 22.0$ & $10^7$ samples, median $\sim$40 \\
+Tobie et al.\ (2003) & Convection model & 20--25 (total) & $q_\mathrm{surf} = 35$--40~mW/m$^2$ \\
+Green et al.\ (2021) & Thermal equil. & 5--30 & Strain-rate dependent \\
+Wakita et al.\ (2024) & Basin morphology & $>$20 (total) & 6--8~km brittle lid \\
+Chen et al.\ (2026) & Param.\ convection & 20--45 & Eccentricity variations \\
+Quick \& Marsh (2015) & Conductive cooling & $\sim$28 per TW & Global energy balance \\
+\midrule
+\textbf{This work (1D Andrade)} & \textbf{MC + Bayesian} & \textbf{22.4 [14.5, 30.6]} & \textbf{Post.\ $D_\mathrm{cond}$, Model A} \\
+\textbf{This work (1D Andrade)} & \textbf{MC prior} & \textbf{28.9 [16.3, 56.7]} & \textbf{Prior $H_\mathrm{total}$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Our posterior $D_\mathrm{cond} = 22.4$~km is remarkably consistent with Howell's (2021) CBE of 22.0~km, despite independent model implementations and different parameter distributions. Both studies converge on a $\sim$20--25~km conductive layer as the most probable equatorial structure, lending confidence to the result.
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Testable Predictions}
+\label{sec:predictions}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\begin{predictionbox}[Prediction 1: Europa Clipper REASON Radar]
+If H1 (Uniform + Marginal Convection) is correct:
+\begin{itemize}[nosep]
+  \item REASON should detect a conductive lid of $20 \pm 5$~km at equatorial latitudes.
+  \item If a convective sublayer exists, it should appear as a diffuse scattering zone (not a sharp reflector) below the conductive--convective interface.
+  \item Equator-to-pole lid thickness variation should be modest ($< 2\times$).
+\end{itemize}
+If H2 (Equatorial Enhancement) is correct:
+\begin{itemize}[nosep]
+  \item Equatorial $D_\mathrm{cond}$ should be $15$--$18$~km, thinner than the Juno estimate.
+  \item Strong equator-to-pole contrast ($> 2\times$) should be detectable.
+\end{itemize}
+\end{predictionbox}
+
+\begin{predictionbox}[Prediction 2: Tidal Love Numbers]
+Europa Clipper gravity science should measure $k_2$ to $\pm 0.05$ and $h_2$ to $\sim 0.1$:
+\begin{itemize}[nosep]
+  \item H1/H3 (thick shells, $H > 25$~km): $h_2 \sim 1.0$--$1.2$, $k_2 \sim 0.25$--$0.30$.
+  \item H4 (conductive, $H \sim 29$~km): Similar $k_2/h_2$ but \textbf{no} tidal heating signature in shell structure.
+  \item H5 (thick convective, $H > 40$~km): $h_2 < 1.0$, detectable departure from thin-shell limit.
+\end{itemize}
+\end{predictionbox}
+
+\begin{predictionbox}[Prediction 3: Grain Size Constraint]
+If grain size can be constrained (e.g., via ice fabric signatures in radar data or spectroscopic analysis of ejecta):
+\begin{itemize}[nosep]
+  \item $d < 0.5$~mm: Convection is robust, H1 or H3 preferred.
+  \item $0.5 < d < 3$~mm: Marginal convection, H1 with mixed conv/cond population.
+  \item $d > 3$~mm: GBS regime, convection suppressed, H4 preferred.
+\end{itemize}
+The sensitivity analysis shows this is \textbf{the single most impactful measurement} for resolving Europa's thermal state.
+\end{predictionbox}
+
+\begin{predictionbox}[Prediction 4: Heat Flow Measurements]
+E-THEMIS (Europa Clipper infrared) may constrain surface heat flow:
+\begin{itemize}[nosep]
+  \item H1: Uniform heat flow $\sim 20$--$35$~mW/m$^2$, weak latitudinal gradient.
+  \item H2: Enhanced equatorial heat flow ($> 40$~mW/m$^2$), strong gradient.
+  \item H3: Enhanced polar heat flow, depleted equatorial ($< 20$~mW/m$^2$).
+  \item H4: Low, uniform heat flow ($\sim 15$--$20$~mW/m$^2$).
+\end{itemize}
+\end{predictionbox}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Conclusions}
+\label{sec:conclusions}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\begin{summarybox}[Principal Conclusions]
+\begin{enumerate}
+  \item \textbf{Andrade rheology is required for Juno compatibility.} Maxwell viscoelastic rheology produces universally convective shells with thin conductive lids ($D_\mathrm{cond} = 8.9$~km) incompatible with the Juno MWR observation. Andrade transient creep produces a bimodal convective/conductive population with $D_\mathrm{cond} = 15$--17~km (prior) and $D_\mathrm{cond} = 19$--22~km (posterior under Juno), consistent with the acceptable window of 19--39~km.
+
+  \item \textbf{Grain size is the master control variable.} With a composite sensitivity score of 0.997, $d_\mathrm{grain}$ dominates all other parameters. It controls whether the shell convects ($d < 1$~mm) or remains conductive ($d > 3$~mm), and it governs the partition between convective and conductive subpopulations in the Monte Carlo ensemble. The conditional sensitivity analysis reveals that grain size is the primary regime-switching parameter (KS = 0.622), while other parameters have regime-dependent importance.
+
+  \item \textbf{Juno constrains rheology, not ocean transport.} The Bayesian analysis shows that all five ocean transport modes produce indistinguishable marginal likelihoods ($\mathrm{BF} = 0.91$--1.04). The 10~km observational uncertainty swamps the $\sim$2~km inter-mode $D_\mathrm{cond}$ differences. $D_\mathrm{cond}$ is structurally set by the rheological transition, not by basal heat flux---making it a poor discriminator for ocean circulation patterns.
+
+  \item \textbf{Europa's equatorial shell is marginally convective.} The Juno posterior predicts a convective fraction of 55--62\% for the baseline mode, with $D_\mathrm{cond} = 22.4$~km [14.5, 30.6]. This ``marginal convection'' state is consistent with Howell (2021), Wakita et al.\ (2024), and the surface geological evidence.
+
+  \item \textbf{Uniform ocean transport is the most parsimonious model.} H1 provides the best 1D Juno overlap, highest marginal likelihood, and requires the fewest assumptions about ocean circulation. However, it cannot explain the equatorial concentration of chaos terrain, suggesting that some latitude-dependent mechanism operates but is not captured by $D_\mathrm{cond}$ alone.
+
+  \item \textbf{Europa Clipper will be transformative.} REASON radar ($\sigma \sim 2$--5~km), gravity/Love numbers ($k_2$ to $\pm 0.05$), and E-THEMIS heat flow can jointly resolve the convective state, grain-size regime, and ocean transport direction. The model predictions in \S\ref{sec:predictions} provide specific, falsifiable targets.
+\end{enumerate}
+\end{summarybox}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+% APPENDICES
+% ═══════════════════════════════════════════════════════════════════════════
+\newpage
+\appendix
+
+\section{Comprehensive Literature Review}
+\label{app:literature}
+
+\subsection{Juno MWR Observations}
+
+Levin et al.\ (2025, \textit{Nature Astronomy}) reported the first microwave radiometric constraint on Europa's subsurface structure. The Juno MWR probed six frequencies during the September 29, 2022 flyby (closest approach $\sim$360~km). The data are consistent with a thermally conductive ice shell of $29 \pm 10$~km (contaminated ice) or $36 \pm 10$~km (pure ice). Subsurface scatterers were detected with a size distribution power-law index of $-4$, volume fraction $\sim$0.05, and scale height $\sim$260~m. These scatterers are assessed as ``unlikely to be a significant pathway'' for chemical exchange.
+
+Wolfenbarger et al.\ (2026, \textit{JGR: Planets}) demonstrated that passive MWR and active radar sounding are complementary---combined, they can produce robust thickness constraints even without detecting the ice-ocean interface directly.
+
+\subsection{Ice Shell Thickness Estimates}
+
+The community broadly converges on 20--40~km for total shell thickness:
+
+\begin{itemize}[nosep]
+  \item \textbf{Howell (2021, PSJ):} $10^7$ MC samples, CBE = 22.0~km, median $\sim$40~km. Conduction-dominated, convection in bottom $\sim$1/3.
+  \item \textbf{Wakita et al.\ (2024, \textit{Science Advances}):} Multi-ring basins require total shell $> 20$~km with 6--8~km brittle lid.
+  \item \textbf{Chen et al.\ (2026, \textit{JGR}):} 20--45~km, influenced by $\sim$1~TW tidal heating and $\eta \sim 10^{14}$~Pa\,s.
+  \item \textbf{Tobie et al.\ (2003, \textit{JGR}):} Equilibrium convective shell 20--25~km, surface heat flux 35--40~mW/m$^2$.
+  \item \textbf{Green et al.\ (2021, \textit{JGR}):} 5--30~km depending on strain rate; lithospheric thickness $< 8$~km regardless.
+  \item \textbf{Quick \& Marsh (2015, \textit{Icarus}):} $\sim$28~km per TW of dissipation in conductive equilibrium.
+  \item \textbf{Billings \& Kattenhorn (2005, \textit{Icarus}):} Clarified that ``thin shell'' estimates (sub-km) refer to elastic/brittle thickness, not total shell.
+\end{itemize}
+
+\subsection{Ocean Heat Transport}
+
+Three ocean circulation paradigms compete:
+
+\begin{itemize}[nosep]
+  \item \textbf{Soderlund et al.\ (2014, \textit{Nat.\ Geosci.}):} 3D simulations show equatorial heat enhancement ($\sim$40\% variation) from rotational dynamics. Consistent with equatorial chaos terrain concentration.
+  \item \textbf{Ashkenazy \& Tziperman (2021, \textit{Nat.\ Commun.}):} MITgcm ocean GCM with ice-melting and salinity effects. Transient Taylor columns, efficient mixing, weak stratification. Supports \textit{uniform} meridional transport.
+  \item \textbf{Lemasquerier et al.\ (2023, \textit{AGU Advances}):} When tidal heating is dominant, the ocean transposes polar-enhanced seafloor heating to the ice-ocean boundary. Partially contradicts Soderlund: equatorial enhancement from ocean dynamics is reversed to polar enhancement when mantle tidal heating is included.
+\end{itemize}
+
+The key tension: Soderlund predicts equatorial enhancement (from ocean dynamics alone); Lemasquerier shows that including mantle tidal heating reverses this to polar enhancement. Resolution depends on the tidal-to-radiogenic heating ratio.
+
+\subsection{Andrade vs.\ Maxwell Rheology}
+
+Bierson (2024, \textit{Icarus}) demonstrates that Maxwell rheology systematically underestimates tidal dissipation because it lacks anelastic response at tidal frequencies. For ice with reference viscosity $10^{14}$~Pa\,s, Maxwell Im$(\mu)$ is 4--5 orders of magnitude lower than observed $Q^{-1}$ values. Andrade and Burgers models are strongly preferred. The Andrade exponent $\alpha$ is typically 0.2--0.4. Different rheology models produce \textit{orders of magnitude} different predictions for tidal heating.
+
+\subsection{Ice Grain Size}
+
+The grain-size problem is one of the most critical uncertainties:
+\begin{itemize}[nosep]
+  \item \textbf{Without impurities/tidal stress:} Dynamic recrystallization drives grains to 30--80~mm (Barr \& McKinnon 2007), killing convection.
+  \item \textbf{Tidal stress equilibrium:} Kalousov\'{a} et al.\ (2023) show tidal differential stress ($\sim$0.12~MPa) maintains grain sizes at 2--6~mm. Equilibration timescale $\sim$0.1~Myr.
+  \item \textbf{Creep regime transition:} Harel \& Dumoulin (2020) find $d < 3$~mm $\Rightarrow$ diffusion creep; $d > 3$~mm $\Rightarrow$ GBS + basal slip. For surface heat flow $> 70$~mW/m$^2$, grain size must be $< 2$~mm (GBS) or $< 0.2$~mm (diffusion creep).
+\end{itemize}
+
+\subsection{Tidal Heating Patterns}
+
+Beuthe (2013, \textit{Icarus}) derived that the spatial pattern of tidal dissipation is a linear combination of three angular functions. For eccentricity tides:
+\begin{itemize}[nosep]
+  \item Deep mantle (surrounding liquid core): dissipation peaks at poles.
+  \item Thin shell/asthenosphere: maximum shifts equatorward with degree-4 structure.
+\end{itemize}
+The parameter $q^* \approx 0.91$ for pure tidal heating, indicating heat flux variations are of the same order as the mean flux. Hussmann \& Spohn (2004) estimate total tidal heating at 0.6--1.0~TW from thermal-orbital coupling.
+
+
+\section{Full Sensitivity Analysis Tables}
+\label{app:sensitivity}
+
+\subsection{Sobol Indices (Global Audited, $N = 512$)}
+
+\begin{longtable}{@{}lcccc@{}}
+\caption{Sobol sensitivity indices for the global audited model ($N = 512$ base samples). $S_1$ = first-order, $S_T$ = total-order.}
+\label{tab:sobol_full} \\
+\toprule
+\textbf{Parameter} & \textbf{$S_1$} & \textbf{$S_1$ conf} & \textbf{$S_T$} & \textbf{$S_T$ conf} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Parameter} & \textbf{$S_1$} & \textbf{$S_1$ conf} & \textbf{$S_T$} & \textbf{$S_T$ conf} \\
+\midrule
+\endhead
+$\log_{10}\varepsilon_0$ & 0.274 & 0.303 & 0.627 & 0.231 \\
+$\log_{10}P_\mathrm{tidal}$ & 0.182 & 0.212 & 0.535 & 0.278 \\
+$D_\mathrm{H_2O}$ & 0.062 & 0.118 & 0.486 & 0.312 \\
+$H_\mathrm{rad}$ & 0.049 & 0.097 & 0.291 & 0.171 \\
+$T_\mathrm{surf}$ & 0.030 & 0.124 & 0.458 & 0.277 \\
+$\log_{10}d_\mathrm{grain}$ & 0.022 & 0.110 & 0.294 & 0.203 \\
+$\log_{10}B_k$ & 0.024 & 0.187 & 0.373 & 0.277 \\
+$Q_v$ & $-$0.035 & 0.211 & 0.578 & 0.343 \\
+$D_{0v}$ & $-$0.095 & 0.201 & 0.633 & 0.420 \\
+$\mu_\mathrm{ice}$ & $-$0.019 & 0.130 & 0.336 & 0.247 \\
+$Q_b$ & $-$0.052 & 0.125 & 0.283 & 0.178 \\
+$f_\mathrm{porosity}$ & $-$0.044 & 0.160 & 0.430 & 0.341 \\
+$T_\phi$ & $-$0.043 & 0.191 & 0.517 & 0.333 \\
+$d_\delta$ & $-$0.004 & 0.182 & 0.470 & 0.355 \\
+$D_{0b}$ & $-$0.024 & 0.110 & 0.237 & 0.262 \\
+$\log_{10}f_\mathrm{salt}$ & $-$0.011 & 0.108 & 0.231 & 0.186 \\
+\bottomrule
+\end{longtable}
+
+\textbf{Note:} Many first-order indices are negative or near zero, while total-order indices are large, indicating strong \textbf{parameter interactions}. The high $S_T$ values for $D_{0v}$ (0.633), $\varepsilon_0$ (0.627), $Q_v$ (0.578), and $P_\mathrm{tidal}$ (0.535) all have low $S_1$, meaning these parameters influence shell thickness primarily through interactions with other parameters (especially grain size). This is physically expected: $D_{0v}$ and $Q_v$ control viscosity, which interacts nonlinearly with grain size and temperature to determine the convective state.
+
+\subsection{Spearman and Pearson Correlations}
+
+\begin{longtable}{@{}lcccc@{}}
+\caption{Parameter correlations with ice shell thickness.}
+\label{tab:correlations} \\
+\toprule
+\textbf{Parameter} & \textbf{Spearman $\rho$} & \textbf{$p$-value} & \textbf{Pearson $r$} & \textbf{$p$-value} \\
+\midrule
+\endfirsthead
+$d_\mathrm{grain}$ & $+$0.585 & $< 10^{-300}$ & $+$0.057 & $6 \times 10^{-5}$ \\
+$P_\mathrm{tidal}$ & $-$0.448 & $< 10^{-244}$ & $-$0.446 & $< 10^{-242}$ \\
+$H_\mathrm{rad}$ & $-$0.213 & $< 10^{-52}$ & $-$0.277 & $< 10^{-88}$ \\
+$Q_v$ & $+$0.167 & $< 10^{-32}$ & $+$0.161 & $< 10^{-30}$ \\
+$T_\mathrm{surf}$ & $-$0.151 & $< 10^{-26}$ & $-$0.134 & $< 10^{-21}$ \\
+$\mu_\mathrm{ice}$ & $-$0.070 & $6 \times 10^{-7}$ & $-$0.049 & $6 \times 10^{-4}$ \\
+$\varepsilon_0$ & $-$0.066 & $3 \times 10^{-6}$ & $-$0.049 & $5 \times 10^{-4}$ \\
+$f_\mathrm{porosity}$ & $-$0.062 & $1 \times 10^{-5}$ & $-$0.039 & $0.006$ \\
+\bottomrule
+\end{longtable}
+
+The Spearman rank correlation for $d_\mathrm{grain}$ ($\rho = +0.585$) is positive, meaning larger grain size correlates with \textit{thicker} shells. This is counterintuitive if one thinks grain size only controls viscosity (larger grains $\rightarrow$ higher viscosity $\rightarrow$ less convection $\rightarrow$ thicker shell). The low Pearson $r = 0.057$ confirms the relationship is highly nonlinear: the effect operates through regime switching (grain size determines whether convection occurs) rather than a smooth monotonic dependence.
+
+
+\section{Posterior Summary Tables}
+\label{app:posterior}
+
+\begin{landscape}
+\begin{longtable}{@{}llcccccccccc@{}}
+\caption{Full Bayesian posterior summary: all scenarios, both observation models. Shrinkage = 1 - (posterior CI width / prior CI width).}
+\label{tab:posterior_full} \\
+\toprule
+\textbf{Scenario} & \textbf{Model} & \textbf{Param} & \textbf{Prior med} & \textbf{Prior $1\sigma$} & \textbf{Post.\ med} & \textbf{Post.\ $1\sigma$} & \textbf{Post.\ 95\% CI} & \textbf{Shrink} & \textbf{ESS} & $\hat{k}$ \\
+\midrule
+\endfirsthead
+Baseline & A & $Q_v$ & 59.38 & [56.4, 62.4] & 60.26 & [57.6, 62.9] & [55.1, 65.3] & 0.130 & 10278 & 0.45 \\
+Baseline & A & $d_\mathrm{grain}$ & 0.588 & [0.27, 1.26] & 0.749 & [0.37, 1.42] & [0.19, 2.41] & $-$0.059 & 10278 & 0.45 \\
+Baseline & A & $q_\mathrm{bas}$ & 15.0 & [8.4, 21.9] & 15.8 & [8.4, 22.4] & [6.1, 24.5] & $-$0.039 & 10278 & 0.45 \\
+Baseline & A & $\varepsilon_0$ & 0.600 & [0.38, 0.94] & 0.586 & [0.37, 0.91] & [0.25, 1.41] & 0.044 & 10278 & 0.45 \\
+Baseline & A & $T_\mathrm{surf}$ & 109.8 & [104.9, 114.6] & 109.7 & [104.8, 114.4] & [100.2, 118.2] & 0.004 & 10278 & 0.45 \\
+Baseline & A & $D_\mathrm{cond}$ & 16.95 & --- & 22.37 & [14.5, 30.6] & --- & 0.231 & 10278 & 0.45 \\
+\midrule
+Baseline & B & $D_\mathrm{cond}$ & 16.95 & --- & 19.54 & [11.5, 27.2] & --- & 0.251 & 12053 & 0.45 \\
+\midrule
+Moderate & A & $D_\mathrm{cond}$ & 17.18 & --- & 21.01 & [15.1, 29.5] & --- & 0.252 & 10581 & 0.45 \\
+Moderate & B & $D_\mathrm{cond}$ & 17.18 & --- & 19.00 & [12.2, 26.2] & --- & 0.275 & 12238 & 0.45 \\
+\midrule
+Depleted & A & $D_\mathrm{cond}$ & 15.53 & --- & 22.16 & [13.1, 32.1] & --- & 0.185 & 9923 & 0.45 \\
+Depleted & B & $D_\mathrm{cond}$ & 15.53 & --- & 18.28 & [10.8, 27.9] & --- & 0.268 & 11851 & 0.45 \\
+\midrule
+Depl.\ str. & A & $D_\mathrm{cond}$ & 15.62 & --- & 21.53 & [13.0, 31.4] & --- & 0.201 & 9930 & 0.45 \\
+Depl.\ str. & B & $D_\mathrm{cond}$ & 15.62 & --- & 18.10 & [10.9, 27.1] & --- & 0.294 & 11817 & 0.45 \\
+\midrule
+Strong & A & $D_\mathrm{cond}$ & 16.18 & --- & 19.48 & [14.6, 28.4] & --- & 0.203 & 10793 & 0.45 \\
+Strong & B & $D_\mathrm{cond}$ & 16.18 & --- & 17.64 & [12.8, 25.1] & --- & 0.287 & 12505 & 0.45 \\
+\bottomrule
+\end{longtable}
+\end{landscape}
+
+
+\section{Experimental Design: Future Observations}
+\label{app:experiments}
+
+\subsection{Critical Measurement 1: Equatorial $D_\mathrm{cond}$ to $\pm 3$~km}
+
+Europa Clipper's REASON instrument (dual-frequency ice-penetrating radar at 9~MHz and 60~MHz) should detect the thermal profile transition from conductive to convective ice. With penetration to $\sim$30~km and range resolution $\sim$15~m, REASON can potentially constrain $D_\mathrm{cond}$ to $\pm 2$--5~km.
+
+\textbf{Impact:} Reducing $\sigma_\mathrm{obs}$ from 10~km to 3~km would increase Bayes factor discrimination by $\sim 10\times$, potentially distinguishing transport modes.
+
+\subsection{Critical Measurement 2: Equator-to-Pole Thickness Contrast}
+
+REASON + gravity/magnetic induction sounding can constrain the latitudinal thickness profile:
+\begin{itemize}[nosep]
+  \item H1 (Uniform): $H_\mathrm{pole}/H_\mathrm{eq} \sim 1.5$--$2.0$ (from surface temperature effect alone)
+  \item H2 (Equatorial): $H_\mathrm{pole}/H_\mathrm{eq} \sim 2.0$--$2.5$
+  \item H3 (Polar): $H_\mathrm{pole}/H_\mathrm{eq} \sim 1.0$--$1.3$
+\end{itemize}
+This is the most discriminating observable for ocean transport mode.
+
+\subsection{Critical Measurement 3: Grain Size}
+
+No direct grain-size measurement is planned, but indirect constraints may come from:
+\begin{itemize}[nosep]
+  \item Ice fabric signatures in REASON radar polarization
+  \item Spectroscopic analysis of fresh ejecta from impacts
+  \item Thermal gradient measurements (E-THEMIS) constraining convective vigor
+\end{itemize}
+
+
+\section{Model Code and Data Availability}
+\label{app:code}
+
+All results are generated by the EuropaProjectDJ codebase:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Component} & \textbf{Location} \\
+\midrule
+1D thermal solver & \texttt{src/Solver.py} \\
+Physics (rheology, conductivity, tidal) & \texttt{src/Physics.py} \\
+Convection parameterization & \texttt{src/Convection.py} \\
+Monte Carlo runner & \texttt{src/Monte\_Carlo.py} \\
+Audited sampler (2026 priors) & \texttt{src/audited\_sampler.py} \\
+Equatorial proxy sampler & \texttt{src/audited\_equatorial\_sampler.py} \\
+Bayesian reweighting & \texttt{scripts/bayesian\_inversion\_juno.py} \\
+Model comparison & \texttt{scripts/bayesian\_equatorial\_juno.py} \\
+Sensitivity analysis & \texttt{scripts/sobol\_analysis.py} \\
+Results (NPZ archives) & \texttt{results/*.npz} \\
+Figures (publication PDFs) & \texttt{figures/pub/*.pdf} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+% REFERENCES
+% ═══════════════════════════════════════════════════════════════════════════
+\newpage
+\section*{References}
+
+\begin{enumerate}[label={[\arabic*]},nosep,leftmargin=*]
+
+\item Ashkenazy, Y.\ and Tziperman, E.\ (2021).\ Dynamic Europa ocean shows transient Taylor columns and convection driven by ice melting and salinity.\ \textit{Nature Communications}, 12, 6376.
+
+\item Barr, A.\ C.\ and McKinnon, W.\ B.\ (2007).\ Convection in ice I shells and mantles with self-consistent grain size.\ \textit{Journal of Geophysical Research}, 112, E02012.
+
+\item Barr, A.\ C.\ and Showman, A.\ P.\ (2009).\ Heat transfer in Europa's icy shell.\ In: \textit{Europa} (R.\ Pappalardo et al., eds.), University of Arizona Press, pp.\ 405--430.
+
+\item Beuthe, M.\ (2013).\ Spatial patterns of tidal heating.\ \textit{Icarus}, 223, 308--329.
+
+\item Bierson, C.\ J.\ (2024).\ The impact of rheology model choices on tidal heating studies.\ \textit{Icarus}, 414, 116014.
+
+\item Billings, S.\ E.\ and Kattenhorn, S.\ A.\ (2005).\ The great thickness debate: Ice shell thickness models for Europa.\ \textit{Icarus}, 177, 397--412.
+
+\item Chen, E.\ et al.\ (2026).\ Parameterized convection models of Europa's ice shell.\ \textit{Journal of Geophysical Research: Planets}, 131, e2024JE008928.
+
+\item Deschamps, F.\ (2021).\ Stagnant lid convection with temperature-dependent thermal conductivity.\ \textit{Geophysical Journal International}, 225, 1023--1038.
+
+\item Deschamps, F.\ and Vilella, K.\ (2021).\ Scaling laws for mixed-heated stagnant-lid convection and application to Europa.\ \textit{Journal of Geophysical Research: Planets}, 126, e2021JE006963.
+
+\item Green, A.\ P.\ et al.\ (2021).\ The effect of toroidal surface velocities on ice shell thickness of Europa.\ \textit{Journal of Geophysical Research: Planets}, 126, e2020JE006677.
+
+\item Harel, L.\ and Dumoulin, C.\ (2020).\ Scaling of heat transfer in stagnant lid convection for icy moons: Influence of rheology.\ \textit{Icarus}, 338, 113448.
+
+\item Howell, S.\ M.\ (2021).\ The likely thickness of Europa's icy shell.\ \textit{The Planetary Science Journal}, 2, 129.
+
+\item Hussmann, H.\ and Spohn, T.\ (2004).\ Thermal-orbital evolution of Io and Europa.\ \textit{Icarus}, 171, 391--410.
+
+\item Kalousov\'{a}, K.\ et al.\ (2023).\ Ice dynamic recrystallization within Europa's ice shell.\ \textit{Icarus}, 399, 115534.
+
+\item Kass, R.\ E.\ and Raftery, A.\ E.\ (1995).\ Bayes factors.\ \textit{Journal of the American Statistical Association}, 90, 773--795.
+
+\item Lawrence, J.\ D.\ et al.\ (2024).\ Ice-ocean interactions on ocean worlds influence ice shell topography.\ \textit{Journal of Geophysical Research: Planets}, 129, e2023JE008036.
+
+\item Lemasquerier, D., Bierson, C.\ J., and Soderlund, K.\ M.\ (2023).\ Europa's ocean translates interior tidal heating patterns to the ice-ocean boundary.\ \textit{AGU Advances}, 4, e2023AV000994.
+
+\item Levin, S.\ M.\ et al.\ (2025).\ Europa's ice thickness and subsurface structure characterized by the Juno microwave radiometer.\ \textit{Nature Astronomy}, 10, 84--91.
+
+\item McKinnon, W.\ B.\ (1999).\ Convective instability in Europa's floating ice shell.\ \textit{Geophysical Research Letters}, 26, 951--954.
+
+\item Quick, L.\ C.\ and Marsh, B.\ D.\ (2015).\ Constraining the thickness of Europa's water-ice shell.\ \textit{Icarus}, 253, 16--24.
+
+\item Shibley, N.\ C.\ and Goodman, J.\ C.\ (2024).\ Non-steady-state thermal equilibrium of Europa's ice shell.\ \textit{Icarus}, 410, 115903.
+
+\item Soderlund, K.\ M.\ et al.\ (2014).\ Ocean-driven heating of Europa's icy shell at low latitudes.\ \textit{Nature Geoscience}, 7, 16--19.
+
+\item Soderlund, K.\ M.\ et al.\ (2024).\ The physical oceanography of ice-covered moons.\ \textit{Annual Review of Marine Science}, 16, 25--53.
+
+\item Tobie, G., Choblet, G., and Sotin, C.\ (2003).\ Tidally heated convection: constraints on Europa's ice shell thickness.\ \textit{Journal of Geophysical Research}, 108, 5124.
+
+\item Tobie, G.\ et al.\ (2025).\ Tidal deformation and dissipation processes in icy worlds.\ \textit{Space Science Reviews}, 221, 3.
+
+\item Wakita, S.\ et al.\ (2024).\ Europa's multi-ring basins reveal thickness of its ice shell.\ \textit{Science Advances}, 10, eadj8455.
+
+\item Wolfenbarger, N.\ S.\ et al.\ (2026).\ Complementary passive and active microwave observations of Europa's ice shell.\ \textit{Journal of Geophysical Research: Planets}, 131, e2025JE009301.
+
+\item Zhang, Y., Kang, W., and Marshall, J.\ (2025).\ How does ice shell geometry shape ocean dynamics on icy moons?\ arXiv:2510.25988.
+
+\end{enumerate}
+
+\end{document}

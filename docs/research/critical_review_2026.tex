@@ -1,0 +1,650 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tcolorbox}
+
+\definecolor{critred}{HTML}{D55E00}
+\definecolor{warnorg}{HTML}{E69F00}
+\definecolor{okblue}{HTML}{0072B2}
+\definecolor{okgreen}{HTML}{009E73}
+
+\newtcolorbox{critical}{colback=critred!8, colframe=critred!60, title={\textbf{Critical Issue}}, fonttitle=\bfseries\color{white}, coltitle=white, colbacktitle=critred!80}
+\newtcolorbox{warning}{colback=warnorg!8, colframe=warnorg!60, title={\textbf{Warning}}, fonttitle=\bfseries\color{white}, coltitle=white, colbacktitle=warnorg!80}
+\newtcolorbox{strength}{colback=okgreen!8, colframe=okgreen!60, title={\textbf{Strength}}, fonttitle=\bfseries\color{white}, coltitle=white, colbacktitle=okgreen!80}
+\newtcolorbox{actionbox}[1][]{colback=okblue!8, colframe=okblue!60, title={#1}, fonttitle=\bfseries\color{white}, coltitle=white, colbacktitle=okblue!80}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textit{Critical Review --- Europa Ice Shell Convection}}
+\lhead{\textit{Pre-Thesis Assessment}}
+\cfoot{\thepage}
+
+\titleformat{\section}{\Large\bfseries\color{okblue}}{}{0em}{}
+\titleformat{\subsection}{\large\bfseries}{}{0em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\itshape}{}{0em}{}
+
+\title{\textbf{Critical Scientific Review}\\[0.3em]
+\Large Europa Ice Shell Convection Model:\\
+Physics, Mathematics, Code, and Research Direction\\[0.5em]
+\large\textit{Pre-Thesis Assessment \& Actionable Goals}}
+\author{Generated for Joshua --- March 2026}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+This document provides a systematic critical review of the EuropaConvection
+modelling project ahead of thesis writing. It evaluates the physics model,
+mathematical framework, Monte Carlo uncertainty quantification, Juno
+observational constraining, and the central scientific hypothesis: that
+ocean-driven heat delivery to Europa's equator can explain the observed
+concentration of chaos terrain at low latitudes. The review identifies
+\textbf{three critical gaps} that must be addressed and proposes
+\textbf{three actionable goals} to close them before the thesis is written.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%======================================================================
+\section{The Central Hypothesis}
+%======================================================================
+
+\subsection{What you set out to show}
+
+Europa's surface displays a striking geographic asymmetry: chaos terrain
+(disrupted ice blocks, melt-through features like Conamara Chaos) clusters
+at equatorial and tropical latitudes, while polar regions are dominated
+by organised ridged terrain. This is counter-intuitive because tidal
+heating is expected to peak at the poles ($\varepsilon_\mathrm{pole}
+\approx 2\times \varepsilon_\mathrm{eq}$; Tobie et al.\ 2003, Beuthe 2013).
+
+Your hypothesis:
+\begin{quote}
+\textit{Ocean circulation preferentially delivers heat to the equatorial
+ice--ocean interface (Soderlund et al.\ 2014), thinning the equatorial ice
+shell and promoting melt-through, diapirism, and surface disruption ---
+producing the observed chaos terrain distribution.}
+\end{quote}
+
+\subsection{What the model actually tests}
+
+The model tests whether \textbf{varying the local basal heat flux} at
+equatorial surface conditions produces shell thicknesses that are
+(a)~thinner at the equator than at the poles, and (b)~consistent with the
+Juno MWR conductive-lid constraint of $D_\mathrm{cond} = 29 \pm 10$~km.
+It does this via:
+
+\begin{enumerate}[leftmargin=2em]
+\item A 1D transient thermal solver with stagnant-lid convection
+      parameterisation (Green et al.\ 2021).
+\item Monte Carlo uncertainty propagation over 12+ physical parameters.
+\item Bayesian importance reweighting against the Juno observation.
+\item A 2D latitude-dependent extension with 37 axisymmetric columns.
+\end{enumerate}
+
+%======================================================================
+\section{Review of the Physics Model}
+%======================================================================
+
+\subsection{Governing equations}
+
+The model solves the 1D transient heat equation with volumetric tidal
+heating:
+\begin{equation}
+\rho\, c_p \frac{\partial T}{\partial t}
+  = \nabla \cdot (k \nabla T) + q_\mathrm{tidal}(T)
+\label{eq:heat}
+\end{equation}
+discretised with Crank--Nicolson (after Rannacher startup) on 31 radial
+nodes. Harmonic-mean conductivity averaging at interfaces ensures flux
+conservation across the conductive--convective transition.
+
+\begin{strength}
+The numerical scheme is well-chosen: Rannacher startup avoids spurious
+oscillations from stiff initial conditions, Picard iteration handles the
+nonlinear $k(T)$ and $q_\mathrm{tidal}(T)$ couplings, and the tridiagonal
+solve is $O(N)$. Auto-switching between spherical and Cartesian geometry
+at $H = 30$~km is a sensible practical choice.
+\end{strength}
+
+\subsection{Material properties}
+
+Temperature-dependent thermal conductivity $k(T) = 567/T$~W\,m$^{-1}$\,K$^{-1}$
+(Howell 2021) is the \textbf{single most important equation in the model}.
+It creates a factor-of-4 conductivity contrast between polar ($T \sim 50$~K,
+$k \sim 11$~W/m/K) and equatorial ($T \sim 110$~K, $k \sim 5$~W/m/K) surfaces.
+
+\begin{critical}
+Your own diagnostic (2026-03-20 surface-temperature-dominance analysis)
+showed that \textbf{surface temperature alone accounts for $\sim$101\% of the
+pole--equator lid-thickness contrast}. This means the $k(T)$ relationship,
+not ocean heat transport, is doing essentially all the work. The ocean
+transport multiplier adds a measurable but \textbf{secondary} correction.
+This finding needs to be front and centre in the thesis, not buried.
+\end{critical}
+
+\subsection{Rheology and viscosity}
+
+The composite diffusion-creep viscosity follows Howell (2021):
+\begin{equation}
+\eta = \frac{1}{2}\left[
+  \frac{42\, V_m}{R\, T\, d^2}
+  \left(D_v + \frac{\pi\delta}{d}\,D_b\right)
+\right]^{-1}
+\label{eq:visc}
+\end{equation}
+with volume and grain-boundary diffusivities $D_v, D_b$ following Arrhenius
+laws.
+
+\begin{strength}
+Supporting both Maxwell and Andrade rheologies for tidal dissipation is
+good practice. The Andrade formulation follows McCarthy et al.\ (2011) and
+Renaud \& Henning (2018), which is the current community standard for icy
+satellites.
+\end{strength}
+
+\begin{warning}
+The grain-size transition at $T = 230$~K (1.0~mm $\to$ 0.1~mm) is a
+hard step function. In reality, dynamic recrystallisation produces a
+continuous grain-size profile that depends on strain rate, temperature,
+and stress history (Barr \& McKinnon 2007). This step may introduce
+an artificial viscosity jump at 230~K.
+\end{warning}
+
+\subsection{Stagnant-lid convection parameterisation}
+
+The model uses the Green et al.\ (2021) / Deschamps \& Vilella (2021)
+temperature-profile scanning method:
+\begin{equation}
+\mathrm{Nu} = C\,\mathrm{Ra}^\xi
+  \left(\frac{T_i - T_c}{\Delta T}\right)^\zeta, \qquad
+\mathrm{Ra}_\mathrm{crit} = 1000
+\end{equation}
+
+\begin{strength}
+Dynamic interface detection (scanning for $T \geq T_c$ in the profile)
+is physically more defensible than fixed-depth cutoffs. The convection
+ramp for cold columns prevents numerical discontinuities.
+\end{strength}
+
+%======================================================================
+\section{Review of the Monte Carlo Framework}
+%======================================================================
+
+\subsection{Prior distributions}
+
+The 2026 parameter audit is well-documented and literature-grounded:
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Parameter} & \textbf{Prior} & \textbf{Range} & \textbf{Sensitivity} \\
+\midrule
+$d_\mathrm{grain}$ & LogNormal(0.6~mm, $\sigma=0.35$~dex) & [0.05, 3.0]~mm & \textbf{High} \\
+$\varepsilon_0$ & LogNormal($1.2\times10^{-5}$, $\sigma=0.3$) & [$2\times10^{-6}$, $3.4\times10^{-5}$] & \textbf{High} \\
+$\mu_\mathrm{ice}$ & Normal($3.5\pm0.5$~GPa) & [2, 5]~GPa & High \\
+$q_\mathrm{basal}$ & Uniform & [5, 25]~mW/m$^2$ & Medium \\
+$T_\mathrm{surf}$ & Normal($104\pm7$~K) & [80, 120]~K & Medium \\
+$Q_v$ & Normal($59.4$~kJ/mol, 5\%) & --- & \textbf{Dominant} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{strength}
+Replacing the old $P_\mathrm{tidal}$ sampling with direct $q_\mathrm{basal}$
+is a significant improvement. Fixing $f_\mathrm{salt} = 0$ (pure-ice
+baseline) with salinity as a separate scenario avoids the unconstrained
+salt--conductivity degeneracy of the old prior.
+\end{strength}
+
+\subsection{Sobol sensitivity analysis}
+
+The Sobol decomposition reveals the model's structural truth:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Parameter} & $S_1$ (first-order) & $S_T$ (total-order) \\
+\midrule
+$Q_v$ (activation energy) & 0.365 & \textbf{0.557} \\
+$d_\mathrm{grain}$ (grain size) & 0.313 & \textbf{0.496} \\
+$\varepsilon_0$ (tidal strain) & 0.096 & 0.285 \\
+$q_\mathrm{basal}$ (ocean heat) & 0.044 & \textbf{0.142} \\
+$T_\mathrm{surf}$ (surface temp) & 0.014 & 0.023 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{critical}
+\textbf{Rheology dominates the conductive lid.} The combined $S_T$ for
+$Q_v + d_\mathrm{grain} = 1.05$, while $q_\mathrm{basal}$ contributes
+only $S_T = 0.14$. This means the ocean heat flux --- the physical quantity
+your hypothesis depends on --- explains only $\sim$14\% of the variance in
+$D_\mathrm{cond}$. The model's own sensitivity analysis shows that
+\textbf{the observable you compare to Juno ($D_\mathrm{cond}$) is largely
+insensitive to the mechanism you are testing (ocean heat transport)}.
+
+This is the most important finding in the project and must be honestly
+confronted in the thesis.
+\end{critical}
+
+%======================================================================
+\section{Review of Juno Constraining}
+%======================================================================
+
+\subsection{Methodology}
+
+Bayesian importance reweighting against $D_\mathrm{cond}^\mathrm{obs}
+= 29 \pm 10$~km (Levin et al.\ 2026) with iterative prior tightening.
+Converged in a single round for all three ocean scenarios at 35$^\circ$
+latitude, with ESS fractions $\sim$69\%.
+
+\begin{strength}
+Importance reweighting is the right choice for an expensive forward model.
+The ESS fraction of 69\% indicates good prior--likelihood overlap, and
+the PSIS $\hat{k} \approx 0.45$ confirms stable tail behaviour.
+\end{strength}
+
+\subsection{Results}
+
+All three ocean transport models produce nearly identical posteriors at
+35$^\circ$:
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Scenario} & $q_\mathrm{mult}$ & $D_\mathrm{cond}$ posterior & ESS/N \\
+\midrule
+Uniform & 1.000 & 22.24~km & 69.1\% \\
+Soderlund & 1.002 & 22.23~km & 69.1\% \\
+Lemasquerier & 0.998 & 22.26~km & 69.1\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{critical}
+\textbf{The Juno data cannot discriminate between ocean transport modes.}
+At 35$^\circ$ latitude, the transport multipliers are all $\approx 1.0$,
+so the three scenarios collapse. This is not a failure of the method but a
+geometric limitation: a single mid-latitude measurement point has no
+leverage on equator--pole contrasts. The equatorial Bayesian refit
+(posterior\_summary.csv) confirms this: log Bayes factors between scenarios
+are all $<0.3$, far below the threshold for ``substantial'' evidence.
+
+The thesis must clearly state: \textit{Juno's mid-latitude observation
+constrains the global mean shell properties but cannot resolve the
+latitudinal heat transport pattern.}
+\end{critical}
+
+\subsection{What the Juno refit did constrain}
+
+The meaningful posterior updates are in rheological parameters:
+\begin{itemize}[leftmargin=2em]
+\item $d_\mathrm{grain}$: shifted from 0.60~mm (prior) to 0.76~mm
+      (posterior), 90\% CI narrowed by 55\% (from 1.78 to 0.81~dex).
+      But 0.31--1.96~mm is still nearly an order of magnitude.
+\item $q_\mathrm{basal}$: 90\% CI narrowed by 19\% (from 20 to 16~mW/m$^2$
+      width). Median shifted to 10.3~mW/m$^2$ from prior centre of 15.
+\end{itemize}
+
+\begin{warning}
+The posterior $d_\mathrm{grain}$ range of [0.31, 1.96]~mm is still
+broad enough that it cannot distinguish between the Mitri (2023) estimate
+of 0.39--0.80~mm and the Ruiz et al.\ (2007) range of 0.2--2~mm.
+\end{warning}
+
+%======================================================================
+\section{Review of the 2D Latitude Model}
+%======================================================================
+
+\subsection{Architecture}
+
+The 2D model couples 37 independent 1D columns via operator splitting:
+radial heat equation first, then explicit lateral diffusion between columns.
+
+\begin{warning}
+\textbf{Lateral diffusion is negligible.} The thermal diffusion timescale
+across Europa's radius is $\tau \sim R^2/\kappa \sim 200$~Gyr, far exceeding
+the model's 15.8~Myr integration window. The 2D model therefore reduces to
+37 independent 1D columns with latitude-varying boundary conditions. This is
+not wrong, but the ``2D'' framing may overstate the physics. The lateral
+coupling that matters is \textbf{ocean circulation}, which is imposed as a
+boundary condition, not solved.
+\end{warning}
+
+\subsection{Latitude-dependent physics}
+
+The latitude profile includes:
+\begin{enumerate}[leftmargin=2em]
+\item Surface temperature: $T_s(\phi) = [(T_\mathrm{eq}^4 - T_\mathrm{floor}^4)
+      \cos^p\phi + T_\mathrm{floor}^4]^{1/4}$, calibrated to Ashkenazy (2019).
+\item Tidal strain: $\varepsilon_0(\phi) = \varepsilon_\mathrm{eq}
+      \sqrt{1 + c\sin^2\phi}$ (Beuthe 2013 whole-shell pattern).
+\item Ocean heat flux: scenario-dependent pattern $q(\phi)$ with three options.
+\end{enumerate}
+
+\begin{strength}
+The surface temperature calibration ($p = 1.25$, RMS~$= 0.70$~K vs
+seasonal energy balance) is well-validated. The Beuthe (2013) strain
+patterns with multiple geometries (mantle-core, shell-dominated,
+non-monotonic) provide good coverage of the tidal dissipation uncertainty.
+\end{strength}
+
+%======================================================================
+\section{Honest Assessment: The Hypothesis Gap}
+%======================================================================
+
+Here is the uncomfortable truth that the thesis must confront head-on:
+
+\subsection{The chain of inference has a missing link}
+
+Your hypothesis chain is:
+\[
+\underbrace{\text{Ocean heat}}_{\text{cause}}
+\;\longrightarrow\;
+\underbrace{\text{Thin equatorial ice}}_{\text{mechanism}}
+\;\longrightarrow\;
+\underbrace{\text{Chaos terrain}}_{\text{observation}}
+\]
+
+Your model tests the first arrow ($\longrightarrow$) but \textbf{never
+tests the second}. You show that enhanced equatorial heat flux thins
+$H_\mathrm{total}$ from 35~km to 24~km (for 1.5$\times$ enhancement), but
+you do not model:
+\begin{itemize}[leftmargin=2em]
+\item What shell thickness triggers melt-through or diapir formation.
+\item Whether thinner ice at the equator is mechanically weaker.
+\item Whether the predicted thickness contrast matches the observed chaos
+      distribution.
+\end{itemize}
+
+\subsection{$D_\mathrm{cond}$ is the wrong observable for this hypothesis}
+
+The Juno MWR measures the conductive lid thickness $D_\mathrm{cond}$. But
+your Sobol analysis shows $D_\mathrm{cond}$ is rheology-dominated
+($S_T = 1.05$ for rheological parameters). Meanwhile, $H_\mathrm{total}$
+--- the mechanically relevant quantity for melt-through --- \textit{is}
+sensitive to $q_\mathrm{basal}$ (varying 23--51~km across transport
+scenarios). The model predicts a strong signal in $H_\mathrm{total}$ but
+Juno only measures $D_\mathrm{cond}$, where the signal is weak.
+
+\begin{critical}
+\textbf{The observable you have (Juno $D_\mathrm{cond}$) is insensitive to
+the mechanism you care about (ocean heat). The quantity that is sensitive
+($H_\mathrm{total}$) is not directly observable.} This is not a flaw in
+your work --- it is a fundamental limitation of the current observational
+constraints that the thesis should frame honestly.
+\end{critical}
+
+\subsection{Surface temperature dominance}
+
+Your own analysis (2026-03-20) showed that surface temperature alone
+produces the equator--pole lid contrast. Ocean heat transport adds a
+correction, but the baseline story is:
+\begin{quote}
+\textit{Equatorial ice has a thinner conductive lid because warm equatorial
+surfaces reduce conductivity ($k = 567/T$), not primarily because the ocean
+delivers more heat there.}
+\end{quote}
+
+This is actually a \textbf{robust, defensible result}. It just shifts the
+narrative from ``ocean dynamics cause chaos'' to ``surface thermal physics
+creates the latitude structure, and ocean heat modulates it.''
+
+%======================================================================
+\section{What You Should Actually Be Doing}
+%======================================================================
+
+Given the model's strengths and the gaps identified above, here are the
+three areas where your effort will have the highest return before thesis
+writing.
+
+\subsection{The question you can answer}
+
+You cannot definitively prove that ocean heat causes chaos terrain with this
+model. But you \textit{can} answer a well-posed, publishable question:
+
+\begin{actionbox}[\textbf{Thesis Question}]
+\textit{What is the predicted latitude-dependent ice shell structure on
+Europa under competing ocean heat transport scenarios, and which scenarios
+are consistent with the Juno MWR constraint?}
+\end{actionbox}
+
+This reframes the work from ``explaining chaos'' to ``predicting shell
+structure'' --- a question your model is well-designed to answer.
+
+%======================================================================
+\section{Three Actionable Goals Before Thesis Writing}
+%======================================================================
+
+\begin{actionbox}[\textbf{Goal 1: Produce the definitive pole-to-equator shell profiles}]
+\textbf{What}: Run the 2D latitude model (37 columns, 0$^\circ$--90$^\circ$)
+for $N \geq 500$ MC realisations under all three ocean scenarios (uniform,
+Soderlund, Lemasquerier), with Andrade rheology and the audited 2026 priors.
+Produce latitude profiles of:
+\begin{itemize}[leftmargin=1.5em]
+\item $D_\mathrm{cond}(\phi)$, $D_\mathrm{conv}(\phi)$, $H_\mathrm{total}(\phi)$
+      (median $\pm$ 1$\sigma$ envelopes)
+\item Convective fraction and Ra/Nu as functions of latitude
+\item Pole-to-equator thickness ratio $\Delta H / H_\mathrm{mean}$
+\end{itemize}
+
+\textbf{Why}: This is the \textbf{core deliverable} of the thesis. It
+provides the predicted observables that Europa Clipper can test.
+Currently you have 2D runs at $N = 5$--500 but no systematic comparison
+figure across all three scenarios at production sample size with
+uncertainty envelopes.
+
+\textbf{Deliverable}: One publication-quality multi-panel figure showing
+$H_\mathrm{total}(\phi)$ and $D_\mathrm{cond}(\phi)$ for three scenarios
+with uncertainty bands. This is Figure~1 of the thesis.
+
+\textbf{Time estimate}: 2--3 days (MC runs + figure generation).
+\end{actionbox}
+
+\vspace{0.5em}
+
+\begin{actionbox}[\textbf{Goal 2: Honest Juno comparison with model discrimination}]
+\textbf{What}: Apply the Bayesian importance reweighting to the 2D
+latitude profiles (not just 1D endmembers), using the Juno $D_\mathrm{cond}$
+constraint at 35$^\circ$. Compute:
+\begin{itemize}[leftmargin=1.5em]
+\item Posterior $D_\mathrm{cond}$ at 35$^\circ$ for each scenario
+\item Bayes factors between scenarios (uniform vs Soderlund vs Lemasquerier)
+\item Posterior predictive distributions for $D_\mathrm{cond}$ at the equator
+      and pole (predictions for Clipper)
+\end{itemize}
+
+\textbf{Why}: The current Juno constraining is done on 1D mid-latitude
+columns, which collapse all scenarios to identical posteriors. By using the
+full 2D profiles, you can ask: ``Given that Juno sees $\sim$29~km at 35$^\circ$,
+what does each scenario predict at 0$^\circ$ and 90$^\circ$?'' This is where
+scenario discrimination appears --- not at the observation latitude, but
+at the prediction latitudes.
+
+\textbf{Deliverable}: A table of scenario-conditional predictions at
+equator/pole/mid-latitude. A figure showing posterior predictive
+$D_\mathrm{cond}(\phi)$ under each scenario. Bayes factors reported
+honestly (likely inconclusive, which is itself a result).
+
+\textbf{Time estimate}: 3--4 days (reweighting + figure + interpretation).
+\end{actionbox}
+
+\vspace{0.5em}
+
+\begin{actionbox}[\textbf{Goal 3: Sensitivity decomposition by physical mechanism}]
+\textbf{What}: Decompose the pole-to-equator thickness contrast into
+contributions from:
+\begin{enumerate}[leftmargin=1.5em]
+\item Surface temperature ($k(T)$ effect alone)
+\item Tidal heating latitude pattern ($\varepsilon_0(\phi)$ effect)
+\item Ocean heat transport ($q_\mathrm{basal}(\phi)$ effect)
+\item Interaction terms
+\end{enumerate}
+
+Do this by running the 2D model with each effect turned on/off:
+\begin{itemize}[leftmargin=1.5em]
+\item Run A: uniform $T_s$, uniform $\varepsilon_0$, uniform $q$ (control)
+\item Run B: latitude-varying $T_s$ only (isolate surface effect)
+\item Run C: latitude-varying $T_s + \varepsilon_0$ (add tidal)
+\item Run D: latitude-varying all (full model, per scenario)
+\end{itemize}
+
+\textbf{Why}: Your 2026-03-20 surface-temperature-dominance analysis is
+the most important finding in the project, but it was done as a one-off
+diagnostic, not as a systematic decomposition with uncertainty. Elevating
+this to a proper factor-separation experiment (Stein \& Alpert 1993) gives
+you a defensible, quantitative attribution of what controls Europa's shell
+structure. This is the intellectual core of the thesis.
+
+\textbf{Deliverable}: A bar chart or waterfall diagram showing the
+contribution of each physical mechanism to $\Delta H_\mathrm{total}$
+(pole $-$ equator) with uncertainty bands. This is the ``money figure'' ---
+the one that says ``surface temperature does X\%, tidal does Y\%, ocean
+does Z\%.''
+
+\textbf{Time estimate}: 3--4 days (4 run sets $\times$ 3 scenarios + analysis).
+\end{actionbox}
+
+%======================================================================
+\section{Thesis Narrative Recommendation}
+%======================================================================
+
+Based on this review, the honest thesis narrative is:
+
+\begin{enumerate}[leftmargin=2em]
+\item \textbf{Europa's ice shell structure is primarily controlled by
+      rheology and surface temperature}, not by ocean heat transport.
+      The temperature-dependent conductivity $k(T) = 567/T$ creates a
+      factor-of-4 conductivity contrast between poles and equator, which
+      alone produces the observed lid-thickness latitude gradient.
+
+\item \textbf{Ocean heat transport modulates but does not dominate the
+      shell structure.} Under Soderlund-type equatorial enhancement, the
+      total shell thickness changes by $\sim$12~km (equatorial thinning),
+      but the conductive lid --- the Juno-observable quantity --- changes
+      by $<$2~km.
+
+\item \textbf{The Juno MWR constraint is consistent with all tested
+      ocean scenarios} because the observed quantity ($D_\mathrm{cond}$)
+      is rheology-dominated. Discriminating between scenarios requires
+      either (a)~equator--pole $D_\mathrm{cond}$ measurements (Clipper),
+      or (b)~total shell thickness observations (radar, gravity).
+
+\item \textbf{The chaos terrain connection remains an open question.}
+      The model predicts equatorial thinning consistent with enhanced
+      melt probability, but does not model the melt-through process itself.
+      This is a prediction for future coupled thermomechanical models.
+\end{enumerate}
+
+This narrative is strong, honest, and publishable. It doesn't overstate the
+ocean-heat story but frames it as a \textit{testable prediction} rather than
+a proven mechanism.
+
+%======================================================================
+\section{Summary of Critical Issues}
+%======================================================================
+
+\begin{center}
+\begin{tabular}{p{0.5cm}p{5.5cm}p{3cm}p{4cm}}
+\toprule
+\textbf{\#} & \textbf{Issue} & \textbf{Severity} & \textbf{Resolution} \\
+\midrule
+1 & $D_\mathrm{cond}$ is rheology-dominated, not ocean-heat-driven
+  & \textcolor{critred}{\textbf{Critical}} & Reframe thesis; use $H_\mathrm{total}$ \\
+2 & Juno cannot discriminate ocean scenarios at 35$^\circ$
+  & \textcolor{critred}{\textbf{Critical}} & Predict at other latitudes \\
+3 & Chaos terrain link untested (no melt-through model)
+  & \textcolor{warnorg}{\textbf{Major}} & Acknowledge as prediction \\
+4 & 2D lateral diffusion is negligible ($\tau \sim 200$~Gyr)
+  & \textcolor{warnorg}{\textbf{Moderate}} & Reframe as 1D$\times$37 \\
+5 & Grain-size step function at 230~K
+  & \textcolor{okblue}{Minor} & Sensitivity test \\
+6 & Only Andrade rheology in production
+  & \textcolor{okblue}{Minor} & Add Maxwell comparison \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%======================================================================
+\section{Summary of Strengths}
+%======================================================================
+
+\begin{enumerate}[leftmargin=2em]
+\item \textbf{Rigorous parameter audit} with literature-grounded priors
+      for all 12+ parameters.
+\item \textbf{Sobol sensitivity analysis} providing quantitative attribution
+      of variance to individual parameters --- rare in planetary science
+      thermal modelling.
+\item \textbf{Bayesian observational constraining} via importance reweighting
+      with proper diagnostic checks (ESS, PSIS $\hat{k}$).
+\item \textbf{Three competing ocean scenarios} spanning the published
+      range of ocean heat transport patterns.
+\item \textbf{Surface temperature calibration} validated against seasonal
+      energy balance models.
+\item \textbf{Reproducible codebase} with audited samplers, version-controlled
+      results, and automated figure generation.
+\end{enumerate}
+
+%======================================================================
+\section{Appendix: Key Equations Reference}
+%======================================================================
+
+\subsection{Thermal conductivity}
+\begin{equation}
+k(T) = \frac{567}{T} \quad [\mathrm{W\,m^{-1}\,K^{-1}}]
+\end{equation}
+
+\subsection{Composite viscosity (Howell 2021)}
+\begin{equation}
+\eta = \frac{1}{2}\left[
+  \frac{42\, V_m}{R\, T\, d^2}
+  \left(
+    D_{0v}\,e^{-Q_v/RT}
+    + \frac{\pi\delta}{d}\,D_{0b}\,e^{-Q_b/RT}
+  \right)
+\right]^{-1}
+\end{equation}
+
+\subsection{Maxwell tidal heating}
+\begin{equation}
+q_\mathrm{tidal} = \frac{\varepsilon_0^2\,\omega^2\,\eta}
+  {2\left(1 + \omega^2\eta^2/\mu^2\right)}
+\end{equation}
+
+\subsection{Andrade complex compliance}
+\begin{equation}
+J^*(\omega) = J_U + \beta\,\Gamma(1+\alpha)\,(\omega\tau)^{-\alpha}\,e^{-i\alpha\pi/2}
+  - \frac{i}{\omega\eta}
+\end{equation}
+
+\subsection{Rayleigh number}
+\begin{equation}
+\mathrm{Ra} = \frac{\rho\,g\,\alpha_T\,\Delta T\,D_\mathrm{conv}^3}{\kappa\,\eta}
+\end{equation}
+
+\subsection{Surface temperature profile}
+\begin{equation}
+T_s(\phi) = \left[
+  (T_\mathrm{eq}^4 - T_\mathrm{floor}^4)\cos^p\phi + T_\mathrm{floor}^4
+\right]^{1/4}, \quad p = 1.25
+\end{equation}
+
+\subsection{Tidal strain latitude dependence (Beuthe 2013)}
+\begin{equation}
+\varepsilon_0(\phi) = \varepsilon_\mathrm{eq}\,\sqrt{1 + c\,\sin^2\phi},
+\quad c = \left(\frac{\varepsilon_\mathrm{pole}}{\varepsilon_\mathrm{eq}}\right)^2 - 1
+\end{equation}
+
+\end{document}
