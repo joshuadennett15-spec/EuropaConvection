@@ -154,8 +154,16 @@ law, we adopt the standard approach for parameterized convection models:
    ```
    sigma_conv = rho * g * alpha * DT_rh * delta_rh
    ```
-   where `DT_rh = 2.24 * R * T_i^2 / E_a` and `delta_rh` is the rheological
-   boundary layer thickness.
+   where `DT_rh = 2.24 * R * T_i^2 / E_a` (rheological temperature drop) and
+   `delta_rh` is the rheological boundary layer thickness, computed as:
+   ```
+   delta_rh = D_conv * (Ra_crit / Ra_i)^(1/3)
+   ```
+   i.e., the thermal boundary layer thickness from boundary-layer stability
+   (Davaille & Jaupart 1993). D_conv is the convecting layer thickness and
+   Ra_i is the internal Rayleigh number. Full derivation to be specified in
+   the implementation plan along with the `delta_rh` computation path through
+   the existing `_find_transition_temperatures()` pipeline.
 
 2. Compute effective viscosity at that stress:
    ```
@@ -230,20 +238,72 @@ internal heating rate h. They are NOT a direct Nu(Ra_i, H) law.
 
 The published fitted laws (DV2021 Table 2, Mendeley dataset 4hxsj8rw86/1):
 
+**Interior temperature** (Eq. 21):
 ```
-Theta_i  = a1 * Ra_eff^b1 * gamma^c1 * (1 + h)^d1     [nondim. interior T]
-Phi_s    = a2 * Ra_eff^b2 * gamma^c2 * (1 + h)^d2     [nondim. surface heat flux]
-delta_lid = a3 * Ra_eff^b3 * gamma^c3 * (1 + h)^d3     [nondim. lid thickness]
+T̃_m = 1 - a₁/(f²γ) + (c₁ + c₂f) · {H̃·(1+f+f²)/3}^c₄ / Ra_eff^c₃
 ```
 
-where:
-- `Ra_eff` = effective Rayleigh number (defined with reference viscosity at
-  some characteristic temperature, per the paper's convention)
-- `gamma` = total viscosity contrast across the layer (= exp(theta) in FK)
-- `h` = nondimensional internal heating rate = H_vol * D^2 / (k * DT),
-  where H_vol is volumetric heating (W/m^3) — this is internal heating
-  normalized by the conductive heat flux scale, NOT internal/(internal+basal)
-- Fitted coefficients (a, b, c, d) from Mendeley dataset for each geometry
+**Surface heat flux** (Eq. 23):
+```
+Φ̃_top = a · Ra_eff^b / γ^c
+```
+
+**Stagnant lid thickness** (Eq. 26):
+```
+d̃_lid = a_lid · γ^c / Ra_eff^b
+```
+
+**Threshold internal heating** (Eq. 25, for H̃_crit where bottom flux turns negative):
+```
+H̃_crit = 3·a_H · exp(c_H·γ) · Ra_eff^b_H / (1+f+f²)
+```
+
+### Fitted coefficients (Table 2)
+
+Two regimes separated by the Urey ratio Ur (Eq. 12):
+Ur = (1+f+f²)/3 · H̃/Φ̃_top. Ur < 1 = bottom-heated dominated; Ur > 1 = internally-heated dominated.
+
+| Equation | Symbol | Ur < 1 | Ur > 1 |
+|----------|--------|--------|--------|
+| Interior T (Eq. 21) | a₁ | 1.23 | 1.23 |
+| | a₂ | 1.5 | 1.5 |
+| | c₁ | 3.5 | 4.4 |
+| | c₂ | −2.3 | −3.0 |
+| | c₃ | 0.25 | 1/3 |
+| | c₄ | 1.0 | 1.72 |
+| Surface flux (Eq. 23) | a | 1.46 | 1.57 |
+| | b | 0.27 | 0.27 |
+| | c | 1.21 | 1.21 |
+| Lid thickness (Eq. 26) | a_lid | 0.633 | 0.667 |
+| | b | 0.27 | 0.27 |
+| | c | 1.21 | 1.21 |
+| Threshold H̃ (Eq. 25) | a_H | 0.184 | — |
+| | b_H | 0.31 | — |
+| | c_H | 0.19 | — |
+
+### Geometry branch: use 3D-Cartesian (f = 1)
+
+Europa's ice shell curvature ratio is f = (R − D_ice)/R ≈ (1561 − 30)/1561 ≈ 0.98.
+The paper states (Section 4.2): "for f > 0.6 such a [curvature] correction is
+not needed." Therefore **use f = 1 (Cartesian limit)** for all scaling laws.
+
+With f = 1 the equations simplify:
+- (1+f+f²)/3 = 1, so {H̃·1}^c₄ = H̃^c₄
+- f² = 1, so a₁/(f²γ) = a₁/γ
+- Lid thickness and heat flux scaling need no f correction
+
+### Key definitions
+
+- `Ra_eff` = Ra_surf · exp(a_η · T̃_m) (Eq. 10), where Ra_surf is the
+  surface Rayleigh number and a_η = ln(Δη) for FK viscosity
+- `γ` = ΔT/ΔT_ν (Eq. 22), the nondimensional inverse of the viscous
+  temperature scale. For FK: γ = a_η = ln(Δη)
+- `H̃` = ρ·H·D²/(k·ΔT) (Eq. 4), nondimensional internal heating rate,
+  where H is volumetric heating (W/m³ per unit mass → W/kg)
+- `T̃_m` = (T_m − T_surf)/ΔT, nondimensional interior temperature
+- `Φ̃_top` = surface heat flux / (k·ΔT/D), nondimensional surface heat flux
+- `d̃_lid` = d_lid/D, nondimensional lid thickness
+- `Ur` = (1+f+f²)/3 · H̃/Φ̃_top (Eq. 12), Urey ratio
 
 **Urey ratio / internal heating rate:**
 
@@ -335,14 +395,18 @@ where `beta = W_dot_disl / W_dot_total` (dislocation work fraction).
 **Equilibrium grain size** (Eq. 14, setting dd/dt = 0):
 
 ```
-d_ss^(1+p) = K_gg * exp(-Q_gg/(R*T)) * c * gamma / ((p-1) * lambda_eff * sigma * eps_dot)
+d_ss^(1+p) = K_gg * exp(-Q_gg/(R*T)) * c * gamma / (p * lambda_eff * sigma * eps_dot)
 ```
 
 ```
-d_ss = [K_gg * exp(-Q_gg/(R*T)) * c * gamma / ((p-1) * lambda_eff * sigma * eps_dot)]^(1/(1+p))
+d_ss = [K_gg * exp(-Q_gg/(R*T)) * c * gamma / (p * lambda_eff * sigma * eps_dot)]^(1/(1+p))
 ```
 
-With p=6.03, the exponent is 1/7.03 ~ 0.14. Grain size is weakly sensitive to
+The factor of 1/p in the denominator comes from differentiating the growth law
+d^p = K·t → dd/dt = K·exp(-Q_gg/RT) / (p·d^(p-1)). This is p^(-1), NOT (p-1).
+
+With p=2.0 (default), the exponent is 1/3. With p=6.03 (bubble-rich branch),
+the exponent is 1/7.03 ~ 0.14. In both cases grain size is weakly sensitive to
 stress — good for convergence.
 
 ### Ice Ih Parameters
