@@ -74,7 +74,7 @@ k(T) = 612 / T   [W/m/K]
 
 ### References
 
-- Carnahan, Wolfenbarger, Jordan & Hesse (2021), EPSL 567, 116996
+- Carnahan, Wolfenbarger, Jordan & Hesse (2021), EPSL 563, 116886
 - Wolfenbarger et al. (2021), Data in Brief 36, 107079
 - Confirmed by PlanetProfile (Vance et al.): uses identical `612/T` formula
 
@@ -129,21 +129,49 @@ eps_dot_total = eps_dot_GBS + eps_dot_disl
 eta_eff = sigma / (2 * eps_dot_total)
 ```
 
-**Flow law parameters** (Goldsby & Kohlstedt 2001, Table 3):
+**Flow law parameters** (Goldsby & Kohlstedt 2001, Table 5; cross-verified
+against Weikusat et al. 2020, The Cryosphere 14, 2429, Table 1):
 
-ALL VALUES CONVERTED TO SI (Pa, m, s). The original paper uses MPa-based units.
-Conversion: A_SI = A_MPa * 1e-6^n (e.g., for GBS: 1e-6^1.8 = 10^-10.8).
+ALL VALUES IN SI (Pa, m, s). Original GK2001 values are in MPa; conversion
+shown explicitly. A_SI = A_MPa × (10⁶)^(-n).
 
-| Mechanism | n | m (grain) | A_SI (Pa^-n m^m s^-1) | Q (kJ/mol) | T range |
-|-----------|---|-----------|----------------------|------------|---------|
-| GBS | 1.8 | 1.4 | 6.2e-14 * 1e-10.8 = ~9.8e-25 | 49 | T < 255 K |
-| GBS | 1.8 | 1.4 | 3.9e-3 * 1e-10.8 = ~6.2e-14 | 192 | T > 255 K |
-| Dislocation | 4.0 | 0.0 | 4.0e5 * 1e-24 = 4.0e-19 | 60 | all |
+**GBS-limited creep** (GK2001 Eq. 15, Table 5):
+
+| Regime | n | p | A_MPa | A_SI (Pa^-n m^p s^-1) | Q (kJ/mol) |
+|--------|---|---|-------|----------------------|------------|
+| T < 255 K | 1.8 | 1.4 | 3.9e-3 | 3.9e-3 × 10^-10.8 = **6.18e-14** | 49 |
+| T ≥ 255 K | 1.8 | 1.4 | 3.0e26 | 3.0e26 × 10^-10.8 = **4.76e15** | 192 |
+
+**Dislocation creep** (GK2001 Eq. 13, Table 5):
+
+| Regime | n | p | A_MPa | A_SI (Pa^-n s^-1) | Q (kJ/mol) |
+|--------|---|---|-------|-------------------|------------|
+| T < 258 K | 4.0 | 0 | 4.0e5 | 4.0e5 × 10^-24 = **4.0e-19** | 60 |
+| T ≥ 258 K | 4.0 | 0 | 6.0e28 | 6.0e28 × 10^-24 = **6.0e4** | 181 |
+
+**Basal slip** (GK2001 Eq. 14, Table 5 — included for reference but OMITTED
+from the reduced composite per design decision):
+
+| Regime | n | p | A_MPa | A_SI (Pa^-n s^-1) | Q (kJ/mol) |
+|--------|---|---|-------|-------------------|------------|
+| all T | 2.4 | 0 | 5.5e7 | 5.5e7 × 10^-14.4 = **1.38e-7** | 60 |
 
 **CRITICAL: Unit conversion.** The A values in Goldsby & Kohlstedt (2001) are in
-MPa^-n s^-1. The conversion to Pa^-n s^-1 is A_SI = A_MPa * (1e-6)^n. For
+MPa^-n s^-1. The conversion to Pa^-n s^-1 is A_SI = A_MPa × (10⁶)^(-n). For
 n=1.8 this is a factor of 10^-10.8; for n=4 this is 10^-24. Copying MPa values
 directly into SI code would produce strain rates wrong by factors of 10^(6n).
+
+**NOTE: Temperature split points differ between mechanisms.** GBS transitions at
+T* = 255 K; dislocation at T* = 258 K. These must be checked independently.
+
+**Full composition rule** (GK2001 Eq. 19, for reference):
+```
+ε̇_total = ε̇_diff + (1/ε̇_basal + 1/ε̇_GBS)^(-1) + ε̇_disl
+```
+GBS and basal slip are in SERIES (basal accommodates GBS), then PARALLEL with
+diffusion and dislocation. Our reduced composite OMITS basal slip, making GBS
+unbounded by basal accommodation — a simplification justified at Europa's low
+convective stresses (~1-100 kPa) where GBS dominates over basal slip.
 
 **Stress convention and linearization:**
 
@@ -322,8 +350,17 @@ latitude-dependent 2D sampler (`latitude_sampler.py:143`) computes run-specific
 q_basal that may differ from the global constants.
 
 **FK correction** (Harel et al. 2020; Grigne 2023): When `FK_CORRECTION=true`,
-apply 0.7x multiplier to the heat flux scaling to correct the ~30% FK
-overestimate vs Arrhenius.
+apply a correction multiplier to the heat flux scaling. The FK approximation
+overestimates heat flux by ~20-30% vs Arrhenius (Reese et al. 1999: ~20%;
+Harel et al. 2020: ~30% for composite ice rheology). The correction is
+primarily a prefactor shift (not a change in scaling exponent). Default
+multiplier: 0.75 (midpoint of 0.7-0.8 range). Made configurable via:
+```json
+"convection": { "FK_CORRECTION_FACTOR": 0.75 }
+```
+Grigne (2023) notes that a more principled approach is to recalibrate theta
+rather than post-hoc multiply, but the multiplicative correction is standard
+practice and defensible for a parameterized model.
 
 ### Calibration consistency with composite_gbs
 
@@ -418,20 +455,32 @@ Two parameter sets are available, depending on impurity assumptions:
 | Parameter | Value | Source |
 |-----------|-------|--------|
 | p (grain growth exponent) | 2.0 | Standard normal grain growth (no pinning) |
-| K_gg (growth rate constant) | 1.1e-8 m^2/s | Azuma et al. 2012 (pure ice fit) |
-| Q_gg (growth activation energy) | 40 kJ/mol | Azuma et al. 2012 |
-| lambda (work fraction coefficient) | 0.01 (range 0.005-0.015) | Behn 2021 |
-| c (geometric constant) | pi ~ 3.14 | Austin & Evans 2007 |
+| K_gg (growth rate constant) | (not separately tabulated by Behn) | see note below |
+| Q_gg (growth activation energy) | 42 kJ/mol | Behn 2021 Table 1 |
+| lambda (work fraction coefficient) | 0.01 (range 0.005-0.05) | Behn 2021 Table 1 |
+| c (geometric constant) | 3 | Behn 2021 Table 1 (NOT pi) |
 | gamma (grain boundary energy) | 0.065 J/m^2 | Ketcham & Hobbs 1969 |
+
+NOTE: Behn 2021 only tabulates K_gg for the bubble-rich joint fit. For p=2
+(bubble-free), K_gg must be estimated from the Azuma et al. (2012) growth
+data independently. The p=1.8 bubble-free result comes from a single
+experiment (T15) and is not fully constrained. For the default p=2 branch,
+use K_gg from standard ice grain growth literature (Azuma et al. 2012
+report values in the range ~1e-8 to 1e-10 m^2/s for p~2).
 
 **Bubble-rich / impurity-drag (sensitivity branch):**
 
 | Parameter | Value | Source |
 |-----------|-------|--------|
-| p (grain growth exponent) | 6.03 +/- 0.25 | Behn 2021 (joint fit to bubble-rich cores) |
-| K_gg (growth rate constant) | 6.18e-6 m^p/s | Behn 2021 |
-| Q_gg (growth activation energy) | 49.6 kJ/mol | Behn 2021 |
+| p (grain growth exponent) | 6.03 +/- 0.25 | Behn 2021 Table 1 (joint fit) |
+| K_gg (growth rate constant) | 9.15e-18 m^p/s | Behn 2021 Table 1 (joint fit) |
+| Q_gg (growth activation energy) | 42 kJ/mol | Behn 2021 Table 1 |
 | lambda, c, gamma | same as above | same |
+
+CRITICAL: K_gg = 9.15e-18 m^p/s (NOT 6.18e-6 as previously stated — that
+value was 12 orders of magnitude wrong). The lab-only fit gives K_gg =
+1.36e-20 m^p/s. Note that Q_gg = 42 kJ/mol is the GRAIN GROWTH activation
+energy, distinct from Q_GBS = 49 kJ/mol (the GBS creep activation energy).
 
 **Rationale for p=2 default:** The rest of the model carries no explicit
 impurity/bubble physics (f_salt=0, pure-ice baseline per PARAMETER_PRIOR_AUDIT_2026.md).
