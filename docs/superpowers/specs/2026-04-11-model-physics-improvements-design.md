@@ -32,7 +32,8 @@ config files without the new keys fall back via `ConfigManager.get(section, key,
     },
     "rheology": {
         "CREEP_MODEL": "composite_gbs",
-        "GRAIN_MODE": "sampled"
+        "GRAIN_MODE": "sampled",
+        "WATTMETER_P": 2.0
     },
     "convection": {
         "NU_SCALING": "dv2021",
@@ -47,6 +48,7 @@ config files without the new keys fall back via `ConfigManager.get(section, key,
 | `CONDUCTIVITY_MODEL` | thermal | `"Howell"`, `"Carnahan"`, `"CBE"` | `"Howell"` | `"Carnahan"` |
 | `CREEP_MODEL` | rheology | `"diffusion"`, `"composite_gbs"` | `"diffusion"` | `"composite_gbs"` |
 | `GRAIN_MODE` | rheology | `"sampled"`, `"wattmeter"` | `"sampled"` | `"sampled"` |
+| `WATTMETER_P` | rheology | float (grain growth exponent) | `2.0` | `2.0` |
 | `NU_SCALING` | convection | `"green"`, `"howell"`, `"dv2021"` | `"green"` | `"dv2021"` |
 | `FK_CORRECTION` | convection | `true`, `false` | `false` | `true` |
 | `GEOMETRY_CORRECTION` | convection | float multiplier | `1.0` | `1.0` |
@@ -105,37 +107,70 @@ viscosity is systematically overestimated, suppressing convection.
 Implement the full Goldsby & Kohlstedt (2001) composite flow law with four
 parallel creep mechanisms.
 
-### Equations
+### Approach: Reduced GBS + Dislocation Composite
 
-**Parallel mechanisms** (weakest η dominates):
+The full four-mechanism Goldsby-Kohlstedt law (diffusion + GBS + basal slip +
+dislocation) is stress-dependent and cannot be dropped into the current
+`composite_viscosity(T, d, ...)` API without a stress argument. Instead, we
+implement a **reduced two-mechanism composite** (GBS + dislocation) that is
+sufficient for the grain-size range of interest (0.05-4 mm at 240-270 K):
 
-```
-1/eta_composite = 1/eta_diffusion + 1/eta_GBS + 1/eta_basal
-```
-
-with dislocation creep in series with basal-slip-limited mechanisms:
-
-```
-eps_dot_total = eps_dot_diff + 1/(1/eps_dot_basal + 1/eps_dot_GBS) + eps_dot_disl
-```
-
-**Individual flow laws** (Goldsby & Kohlstedt 2001, Table 3):
-
-| Mechanism | n | p (grain) | A (pre-exp) | Q (kJ/mol) | T range |
-|-----------|---|-----------|-------------|------------|---------|
-| Volume diffusion | 1.0 | 2.0 | (existing) | 59.4 | all |
-| GBS | 1.8 | 1.4 | 3.9e-3 MPa^-1.8 s^-1 | 49 (low-T) / 192 (high-T) | </>255 K |
-| Basal slip | 2.4 | 0.0 | 5.5e7 MPa^-2.4 s^-1 | 60 | all |
-| Dislocation | 4.0 | 0.0 | 4.0e5 MPa^-4 s^-1 | 60 | all |
-
-**Convective stress estimation** (Barr & McKinnon 2007; Harel et al. 2020):
+**Strain-rate formulation** (additive, parallel mechanisms):
 
 ```
-sigma_conv = rho * g * alpha * DT_rh * delta_rh
+eps_dot_total = eps_dot_GBS + eps_dot_disl
+             = A_GBS * d^(-m) * sigma^n_GBS * exp(-Q_GBS/(RT))
+             + A_disl * sigma^n_disl * exp(-Q_disl/(RT))
 ```
 
-where `DT_rh = 2.24 * R * T_i^2 / E_a` (rheological temperature drop) and
-`delta_rh` is the rheological boundary layer thickness from the scaling law.
+**Effective viscosity** at a given stress sigma:
+
+```
+eta_eff = sigma / (2 * eps_dot_total)
+```
+
+**Flow law parameters** (Goldsby & Kohlstedt 2001, Table 3):
+
+ALL VALUES CONVERTED TO SI (Pa, m, s). The original paper uses MPa-based units.
+Conversion: A_SI = A_MPa * 1e-6^n (e.g., for GBS: 1e-6^1.8 = 10^-10.8).
+
+| Mechanism | n | m (grain) | A_SI (Pa^-n m^m s^-1) | Q (kJ/mol) | T range |
+|-----------|---|-----------|----------------------|------------|---------|
+| GBS | 1.8 | 1.4 | 6.2e-14 * 1e-10.8 = ~9.8e-25 | 49 | T < 255 K |
+| GBS | 1.8 | 1.4 | 3.9e-3 * 1e-10.8 = ~6.2e-14 | 192 | T > 255 K |
+| Dislocation | 4.0 | 0.0 | 4.0e5 * 1e-24 = 4.0e-19 | 60 | all |
+
+**CRITICAL: Unit conversion.** The A values in Goldsby & Kohlstedt (2001) are in
+MPa^-n s^-1. The conversion to Pa^-n s^-1 is A_SI = A_MPa * (1e-6)^n. For
+n=1.8 this is a factor of 10^-10.8; for n=4 this is 10^-24. Copying MPa values
+directly into SI code would produce strain rates wrong by factors of 10^(6n).
+
+**Stress convention and linearization:**
+
+The current API returns viscosity without a stress argument. For the composite
+law, we adopt the standard approach for parameterized convection models:
+
+1. Estimate convective stress from boundary-layer scaling:
+   ```
+   sigma_conv = rho * g * alpha * DT_rh * delta_rh
+   ```
+   where `DT_rh = 2.24 * R * T_i^2 / E_a` and `delta_rh` is the rheological
+   boundary layer thickness.
+
+2. Compute effective viscosity at that stress:
+   ```
+   eta_eff(T, d, sigma) = sigma / (2 * eps_dot_total(T, d, sigma))
+   ```
+
+3. Use eta_eff in the Rayleigh number computation.
+
+This linearization is evaluated once per Picard iteration, not per grid node.
+The stress estimate updates as T_i converges.
+
+**API change:** `composite_viscosity()` gains an optional `sigma` parameter.
+When `CREEP_MODEL="diffusion"`, sigma is ignored (current behavior). When
+`CREEP_MODEL="composite_gbs"`, sigma is required and defaults to the
+boundary-layer estimate if not provided.
 
 ### Config flag
 
@@ -143,18 +178,25 @@ where `DT_rh = 2.24 * R * T_i^2 / E_a` (rheological temperature drop) and
 "rheology": { "CREEP_MODEL": "composite_gbs" }
 ```
 
-`"diffusion"` preserves current behavior. `"composite_gbs"` activates the full
-Goldsby-Kohlstedt composite.
+`"diffusion"` preserves current behavior. `"composite_gbs"` activates the
+reduced GBS + dislocation composite with explicit stress linearization.
 
 ### Implementation
 
 **File:** `EuropaProjectDJ/src/Physics.py:36`
-- Add `creep_model` parameter to `composite_viscosity()`
-- When `"composite_gbs"`: compute all four mechanism viscosities, combine
-- When `"diffusion"`: existing code path unchanged
-- Add `convective_stress()` helper for sigma estimation
+- Add `creep_model` and `sigma` parameters to `composite_viscosity()`
+- When `"composite_gbs"`: compute GBS + dislocation strain rates at given sigma,
+  return effective viscosity. Validate sigma is provided.
+- When `"diffusion"`: existing code path unchanged, sigma ignored
+- Add `convective_stress()` helper for boundary-layer stress estimation
+- All A values stored in SI units with conversion documented in comments
 
 **Both solvers:** Physics.py is shared; change propagates to 1D and 2D automatically.
+
+**Note on basal slip:** Omitted from the reduced composite. Basal slip (n=2.4)
+acts as an upper bound on GBS strain rate at high stress but is not the
+rate-limiting mechanism at Europa's convective stresses (~1-100 kPa). If needed
+later, it can be added as a series element with GBS without changing the API.
 
 ### References
 
@@ -181,30 +223,71 @@ Implement the DV2021 mixed-heating scaling in all four stub locations.
 
 ### Equations (DV2021, JGR Planets, Tables 1-2)
 
+**IMPORTANT:** The DV2021 scaling laws are for nondimensional quantities —
+interior temperature, surface heat flux, and lid thickness — as functions of
+effective Rayleigh number Ra_eff, viscosity contrast gamma, and nondimensional
+internal heating rate h. They are NOT a direct Nu(Ra_i, H) law.
+
+The published fitted laws (DV2021 Table 2, Mendeley dataset 4hxsj8rw86/1):
+
 ```
-Nu  = a_Nu  * Ra_i^beta_Nu  * (1 + H)^gamma_Nu  * theta^delta_Nu
-T_i = T_b   - a_Ti * DT * Ra_i^(-beta_Ti) * (1 + H)^(-gamma_Ti) * theta^(-delta_Ti)
+Theta_i  = a1 * Ra_eff^b1 * gamma^c1 * (1 + h)^d1     [nondim. interior T]
+Phi_s    = a2 * Ra_eff^b2 * gamma^c2 * (1 + h)^d2     [nondim. surface heat flux]
+delta_lid = a3 * Ra_eff^b3 * gamma^c3 * (1 + h)^d3     [nondim. lid thickness]
 ```
 
 where:
-- `H` = Urey ratio = q_tidal_internal * D_conv / (q_tidal_internal * D_conv + q_ocean)
-- `Ra_i` = Rayleigh number at interior viscosity eta(T_i)
-- `theta` = Frank-Kamenetskii parameter = E_a * DT / (R * T_i^2)
-- Fitted coefficients from Mendeley dataset 4hxsj8rw86/1
+- `Ra_eff` = effective Rayleigh number (defined with reference viscosity at
+  some characteristic temperature, per the paper's convention)
+- `gamma` = total viscosity contrast across the layer (= exp(theta) in FK)
+- `h` = nondimensional internal heating rate = H_vol * D^2 / (k * DT),
+  where H_vol is volumetric heating (W/m^3) — this is internal heating
+  normalized by the conductive heat flux scale, NOT internal/(internal+basal)
+- Fitted coefficients (a, b, c, d) from Mendeley dataset for each geometry
 
-**Urey ratio computation** from existing model quantities:
-- q_tidal from `IcePhysics.tidal_heating()` — volumetric W/m^3
-- q_ocean from `HeatFlux.RADIOGENIC_FLUX + TIDAL_SILICATE_FLUX` — basal W/m^2
-- H = (q_tidal * D_conv) / (q_tidal * D_conv + q_ocean)
+**Urey ratio / internal heating rate:**
+
+The paper's nondimensional h is:
+```
+h = H_vol * D^2 / (k * DT)
+```
+where H_vol = volumetric tidal dissipation (W/m^3) from `IcePhysics.tidal_heating()`,
+D = convecting layer thickness, k = thermal conductivity, DT = temperature drop
+across the convecting layer.
+
+**Basal heat flux:** Do NOT use the global `HeatFlux.RADIOGENIC_FLUX +
+TIDAL_SILICATE_FLUX` constants. Use the actual per-run basal flux already
+flowing through the solver (from the sampler via `q_basal` parameter). The
+latitude-dependent 2D sampler (`latitude_sampler.py:143`) computes run-specific
+q_basal that may differ from the global constants.
 
 **FK correction** (Harel et al. 2020; Grigne 2023): When `FK_CORRECTION=true`,
-apply 0.7x multiplier to Nu to correct the ~30% FK overestimate vs Arrhenius.
+apply 0.7x multiplier to the heat flux scaling to correct the ~30% FK
+overestimate vs Arrhenius.
+
+### Calibration consistency with composite_gbs
+
+DV2021 was calibrated on FK-style temperature-dependent Newtonian viscosity,
+NOT on a grain-size/stress-dependent non-Newtonian composite law. When using
+`CREEP_MODEL="composite_gbs"` together with `NU_SCALING="dv2021"`:
+
+- The GBS composite viscosity is used for the **thermal profile** computation
+  (conduction through the lid, convective heat transport)
+- The **Ra for the DV2021 scaling law** must still use FK-equivalent viscosity
+  (eta_FK at T_i), to match the calibration basis of the scaling law
+- This is consistent with how the current code already handles the Green
+  scaling: `Convection.py:1021` explicitly selects FK viscosity for Ra when
+  using `nu_scaling="green"`
+- Add an explicit mapping rule: `Ra_for_scaling = Ra(eta_FK)` regardless of
+  which creep model is active for the thermal profile
 
 ### Self-consistent iteration
 
-DV2021 requires T_i to compute Ra_i and theta, but T_i is an output. This
+DV2021 requires T_i to compute Ra_eff and gamma, but T_i is an output. This
 slots into the existing Picard iteration in `_find_transition_temperatures()` —
-same loop structure, different equations inside.
+same loop structure, different equations inside. The nondimensional h also
+depends on D (layer thickness), creating a coupled system that the iteration
+must resolve.
 
 ### Config flag
 
@@ -262,19 +345,45 @@ d_ss = [K_gg * exp(-Q_gg/(R*T)) * c * gamma / ((p-1) * lambda_eff * sigma * eps_
 With p=6.03, the exponent is 1/7.03 ~ 0.14. Grain size is weakly sensitive to
 stress — good for convergence.
 
-### Ice Ih Parameters (Behn et al. 2021, joint fit to Azuma et al. 2012)
+### Ice Ih Parameters
+
+Two parameter sets are available, depending on impurity assumptions:
+
+**Bubble-free / pure ice (DEFAULT for this model):**
 
 | Parameter | Value | Source |
 |-----------|-------|--------|
-| p (grain growth exponent) | 6.03 +/- 0.25 | Behn 2021 (bubble-rich ice) |
-| K_gg (growth rate constant) | 6.18e-6 m^p/s | Behn 2021 |
-| Q_gg (growth activation energy) | 49.6 kJ/mol | Behn 2021 |
+| p (grain growth exponent) | 2.0 | Standard normal grain growth (no pinning) |
+| K_gg (growth rate constant) | 1.1e-8 m^2/s | Azuma et al. 2012 (pure ice fit) |
+| Q_gg (growth activation energy) | 40 kJ/mol | Azuma et al. 2012 |
 | lambda (work fraction coefficient) | 0.01 (range 0.005-0.015) | Behn 2021 |
 | c (geometric constant) | pi ~ 3.14 | Austin & Evans 2007 |
 | gamma (grain boundary energy) | 0.065 J/m^2 | Ketcham & Hobbs 1969 |
 
-**Note:** These differ significantly from silicate defaults (ASPECT: p=3, lambda=0.1,
-gamma=1.0). Using silicate parameters would give wrong grain sizes for ice.
+**Bubble-rich / impurity-drag (sensitivity branch):**
+
+| Parameter | Value | Source |
+|-----------|-------|--------|
+| p (grain growth exponent) | 6.03 +/- 0.25 | Behn 2021 (joint fit to bubble-rich cores) |
+| K_gg (growth rate constant) | 6.18e-6 m^p/s | Behn 2021 |
+| Q_gg (growth activation energy) | 49.6 kJ/mol | Behn 2021 |
+| lambda, c, gamma | same as above | same |
+
+**Rationale for p=2 default:** The rest of the model carries no explicit
+impurity/bubble physics (f_salt=0, pure-ice baseline per PARAMETER_PRIOR_AUDIT_2026.md).
+Using p=6.03 would silently bake in impurity-drag grain-growth suppression that
+is inconsistent with the pure-ice assumption elsewhere. The p=6.03 branch is
+available as a sensitivity experiment via config:
+
+```json
+"rheology": { "WATTMETER_P": 2.0 }
+```
+
+Set to 6.03 for impurity-drag sensitivity runs.
+
+**Note:** Both parameter sets differ significantly from silicate defaults
+(ASPECT: p=3, lambda=0.1, gamma=1.0). Using silicate parameters would give
+wrong grain sizes for ice.
 
 ### Iteration strategy (wattmeter mode)
 
@@ -568,14 +677,24 @@ Every section triggers regression test updates. Run full suite after each change
 
 ## Implementation Order
 
-1. **Conductivity swap** (Section 1) — foundation, no dependencies
-2. **GBS composite creep** (Section 2) — highest physics impact
-3. **Pitfalls audit** (Section 6) — verify before building on top
-4. **TidalPy validation** (Section 6b) — quick, independent
-5. **DV2021 scaling** (Section 3) — depends on correct viscosity (Section 2)
-6. **Wattmeter grain size** (Section 4) — depends on GBS creep (Section 2)
-7. **Config & experiment matrix** (Section 8) — wires everything together
-8. **Sobol analysis** (Section 5) — runs on final model
+Audit/plumbing work comes first to ensure the foundation is correct before
+building new physics on top.
+
+1. **Pitfalls audit** (Section 6) — verify Ra/transition/heating plumbing is
+   correct before any new physics changes. Fix FK parameter if wrong, add
+   assertion guards, verify k_eff application.
+2. **Conductivity swap** (Section 1) — trivial foundation change, no dependencies
+3. **GBS composite creep** (Section 2) — reduced GBS+dislocation with correct
+   SI units and explicit stress linearization. Highest physics impact.
+4. **TidalPy validation** (Section 6b) — quick, independent, confirms tidal
+   heating is correct before DV2021 needs it for the Urey ratio
+5. **DV2021 scaling** (Section 3) — depends on verified plumbing (step 1) and
+   correct viscosity framework (step 3). Must use FK-equivalent Ra for scaling
+   law even when composite_gbs is active for thermal profile.
+6. **Wattmeter grain size** (Section 4) — depends on GBS creep (step 3) for
+   the dislocation strain rate in the wattmeter equation
+7. **Config & experiment matrix** (Section 8) — wires all flags together
+8. **Sobol analysis** (Section 5) — runs on final model with all flags
 9. **Lateral flow diagnostic** (Section 7) — post-hoc, no dependencies
 
 Total estimated effort: ~24-30 hours of implementation.
