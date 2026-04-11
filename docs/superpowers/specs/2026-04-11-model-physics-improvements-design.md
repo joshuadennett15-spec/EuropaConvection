@@ -1,0 +1,591 @@
+# Europa Ice Shell Model Physics Improvements
+
+**Date:** 2026-04-11
+**Status:** Draft
+**Approach:** Feature-flagged modular development (Approach C)
+**Scope:** Both 1D (EuropaProjectDJ) and 2D (Europa2D) solvers
+
+## Motivation
+
+Claude Deep Research identified seven areas where EuropaConvection can be improved
+against recent literature. A critical audit of those recommendations against the
+actual codebase found: (1) some are trivial — the code already exists but isn't
+defaulted, (2) one major gap the report missed — GBS creep is absent despite
+grain sizes squarely in the GBS-dominated regime, (3) Andrade rheology and Sobol
+infrastructure are already partially built. This spec captures every actionable
+improvement, with precise equations, parameter values, and references.
+
+## Architecture: Feature Flags
+
+Every improvement is behind a config flag so it can be toggled independently.
+This enables factorial experiment matrices and isolated impact analysis.
+
+All new flags have legacy defaults that reproduce current behavior. Existing
+config files without the new keys fall back via `ConfigManager.get(section, key, default)`.
+
+### New Config Flags
+
+```json
+{
+    "thermal": {
+        "CONDUCTIVITY_MODEL": "Carnahan"
+    },
+    "rheology": {
+        "CREEP_MODEL": "composite_gbs",
+        "GRAIN_MODE": "sampled"
+    },
+    "convection": {
+        "NU_SCALING": "dv2021",
+        "FK_CORRECTION": true,
+        "GEOMETRY_CORRECTION": 1.0
+    }
+}
+```
+
+| Flag | Section | Values | Legacy default | Improved default |
+|------|---------|--------|---------------|-----------------|
+| `CONDUCTIVITY_MODEL` | thermal | `"Howell"`, `"Carnahan"`, `"CBE"` | `"Howell"` | `"Carnahan"` |
+| `CREEP_MODEL` | rheology | `"diffusion"`, `"composite_gbs"` | `"diffusion"` | `"composite_gbs"` |
+| `GRAIN_MODE` | rheology | `"sampled"`, `"wattmeter"` | `"sampled"` | `"sampled"` |
+| `NU_SCALING` | convection | `"green"`, `"howell"`, `"dv2021"` | `"green"` | `"dv2021"` |
+| `FK_CORRECTION` | convection | `true`, `false` | `false` | `true` |
+| `GEOMETRY_CORRECTION` | convection | float multiplier | `1.0` | `1.0` |
+
+---
+
+## Section 1: Thermal Conductivity Default Swap
+
+### Problem
+
+The current default `k(T) = 567/T` (Klinger 1980 / Howell 2021) incorporates
+contaminated low-quality data from Dillard & Timmerhaus (1966).
+
+### Solution
+
+Change default from `"Howell"` to `"Carnahan"` in `constants.py:45`.
+
+### Equation
+
+```
+k(T) = 612 / T   [W/m/K]
+```
+
+### References
+
+- Carnahan, Wolfenbarger, Jordan & Hesse (2021), EPSL 567, 116996
+- Wolfenbarger et al. (2021), Data in Brief 36, 107079
+- Confirmed by PlanetProfile (Vance et al.): uses identical `612/T` formula
+
+### Implementation
+
+**File:** `EuropaProjectDJ/src/constants.py:45`
+- Wire `ConfigManager.get("thermal", "CONDUCTIVITY_MODEL", "Carnahan")` into the
+  `model` parameter of `Thermal.conductivity()`
+- All callers that currently use the default will automatically pick up Carnahan
+
+**Impact:** ~8% increase in k(T). Slightly thicker conductive lids. All regression
+test baselines will shift.
+
+**Effort:** ~1 hour
+
+---
+
+## Section 2: GBS Composite Creep Model
+
+### Problem
+
+The current viscosity (`Physics.py:36`) implements only Nabarro-Herring + Coble
+diffusion creep (grain-size exponent p=2). The sampled grain size range
+(0.05-4 mm, centered at 0.6 mm) is squarely in the GBS-dominated regime
+(0.4 mm - 30 mm), where GBS has p=1.4 and n=1.8. The absence of GBS means
+viscosity is systematically overestimated, suppressing convection.
+
+### Solution
+
+Implement the full Goldsby & Kohlstedt (2001) composite flow law with four
+parallel creep mechanisms.
+
+### Equations
+
+**Parallel mechanisms** (weakest η dominates):
+
+```
+1/eta_composite = 1/eta_diffusion + 1/eta_GBS + 1/eta_basal
+```
+
+with dislocation creep in series with basal-slip-limited mechanisms:
+
+```
+eps_dot_total = eps_dot_diff + 1/(1/eps_dot_basal + 1/eps_dot_GBS) + eps_dot_disl
+```
+
+**Individual flow laws** (Goldsby & Kohlstedt 2001, Table 3):
+
+| Mechanism | n | p (grain) | A (pre-exp) | Q (kJ/mol) | T range |
+|-----------|---|-----------|-------------|------------|---------|
+| Volume diffusion | 1.0 | 2.0 | (existing) | 59.4 | all |
+| GBS | 1.8 | 1.4 | 3.9e-3 MPa^-1.8 s^-1 | 49 (low-T) / 192 (high-T) | </>255 K |
+| Basal slip | 2.4 | 0.0 | 5.5e7 MPa^-2.4 s^-1 | 60 | all |
+| Dislocation | 4.0 | 0.0 | 4.0e5 MPa^-4 s^-1 | 60 | all |
+
+**Convective stress estimation** (Barr & McKinnon 2007; Harel et al. 2020):
+
+```
+sigma_conv = rho * g * alpha * DT_rh * delta_rh
+```
+
+where `DT_rh = 2.24 * R * T_i^2 / E_a` (rheological temperature drop) and
+`delta_rh` is the rheological boundary layer thickness from the scaling law.
+
+### Config flag
+
+```json
+"rheology": { "CREEP_MODEL": "composite_gbs" }
+```
+
+`"diffusion"` preserves current behavior. `"composite_gbs"` activates the full
+Goldsby-Kohlstedt composite.
+
+### Implementation
+
+**File:** `EuropaProjectDJ/src/Physics.py:36`
+- Add `creep_model` parameter to `composite_viscosity()`
+- When `"composite_gbs"`: compute all four mechanism viscosities, combine
+- When `"diffusion"`: existing code path unchanged
+- Add `convective_stress()` helper for sigma estimation
+
+**Both solvers:** Physics.py is shared; change propagates to 1D and 2D automatically.
+
+### References
+
+- Goldsby & Kohlstedt (2001), JGR 106, 11017-11030
+- Barr & McKinnon (2007), JGR 112, E02012
+- Harel et al. (2020), Icarus 338, 113448
+
+**Effort:** ~3-4 hours
+
+---
+
+## Section 3: Deschamps & Vilella 2021 Mixed-Heating Scaling
+
+### Problem
+
+The current Green et al. (2021) scaling `Nu = 0.3446 * Ra^(1/3)` was derived for
+bottom-heated-only stagnant-lid convection. Europa has both internal (tidal) and
+basal (ocean) heating. Four stub locations in `Convection.py` (lines 871, 1031,
+1050, 1181) raise `NotImplementedError` for `"dv2021"`.
+
+### Solution
+
+Implement the DV2021 mixed-heating scaling in all four stub locations.
+
+### Equations (DV2021, JGR Planets, Tables 1-2)
+
+```
+Nu  = a_Nu  * Ra_i^beta_Nu  * (1 + H)^gamma_Nu  * theta^delta_Nu
+T_i = T_b   - a_Ti * DT * Ra_i^(-beta_Ti) * (1 + H)^(-gamma_Ti) * theta^(-delta_Ti)
+```
+
+where:
+- `H` = Urey ratio = q_tidal_internal * D_conv / (q_tidal_internal * D_conv + q_ocean)
+- `Ra_i` = Rayleigh number at interior viscosity eta(T_i)
+- `theta` = Frank-Kamenetskii parameter = E_a * DT / (R * T_i^2)
+- Fitted coefficients from Mendeley dataset 4hxsj8rw86/1
+
+**Urey ratio computation** from existing model quantities:
+- q_tidal from `IcePhysics.tidal_heating()` — volumetric W/m^3
+- q_ocean from `HeatFlux.RADIOGENIC_FLUX + TIDAL_SILICATE_FLUX` — basal W/m^2
+- H = (q_tidal * D_conv) / (q_tidal * D_conv + q_ocean)
+
+**FK correction** (Harel et al. 2020; Grigne 2023): When `FK_CORRECTION=true`,
+apply 0.7x multiplier to Nu to correct the ~30% FK overestimate vs Arrhenius.
+
+### Self-consistent iteration
+
+DV2021 requires T_i to compute Ra_i and theta, but T_i is an output. This
+slots into the existing Picard iteration in `_find_transition_temperatures()` —
+same loop structure, different equations inside.
+
+### Config flag
+
+Already exists as `NU_SCALING: "dv2021"`. Implementation fills the four stubs.
+
+### Data & References
+
+- Paper: [Deschamps & Vilella 2021, JGR Planets](https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2021JE006963)
+- Data: [Mendeley dataset 4hxsj8rw86/1](https://data.mendeley.com/datasets/4hxsj8rw86/1)
+- FK correction: Harel et al. (2020), Icarus 338, 113448; Grigne (2023), GJI 235, 2410
+
+**Effort:** ~4-5 hours (implement once in helper, call from all four stubs)
+
+---
+
+## Section 4: Behn et al. (2021) Wattmeter Equilibrium Grain Size
+
+### Problem
+
+Grain size is currently a free parameter sampled as LogNormal(0.6 mm, sigma=0.35),
+clipped [0.05, 4.0 mm]. The Behn et al. (2021) wattmeter provides a physics-based
+equilibrium calculation that collapses this dimension.
+
+### Solution
+
+New module `EuropaProjectDJ/src/wattmeter.py` implementing the ice paleowattmeter.
+Dual-mode operation: `"sampled"` (current) vs `"wattmeter"` (physics-constrained).
+
+### Equations (Behn et al. 2021, The Cryosphere 15, 4589-4605)
+
+**Grain growth** (Eq. 13, growth term):
+
+```
+dd/dt|_growth = K_gg / (p * d^(p-1)) * exp(-Q_gg / (R*T))
+```
+
+**Grain reduction** (Eq. 13, reduction term):
+
+```
+dd/dt|_red = [lambda_GBS*(1-beta) + lambda_disl*beta] * (d^2 / (c*gamma)) * sigma * eps_dot
+```
+
+where `beta = W_dot_disl / W_dot_total` (dislocation work fraction).
+
+**Equilibrium grain size** (Eq. 14, setting dd/dt = 0):
+
+```
+d_ss^(1+p) = K_gg * exp(-Q_gg/(R*T)) * c * gamma / ((p-1) * lambda_eff * sigma * eps_dot)
+```
+
+```
+d_ss = [K_gg * exp(-Q_gg/(R*T)) * c * gamma / ((p-1) * lambda_eff * sigma * eps_dot)]^(1/(1+p))
+```
+
+With p=6.03, the exponent is 1/7.03 ~ 0.14. Grain size is weakly sensitive to
+stress — good for convergence.
+
+### Ice Ih Parameters (Behn et al. 2021, joint fit to Azuma et al. 2012)
+
+| Parameter | Value | Source |
+|-----------|-------|--------|
+| p (grain growth exponent) | 6.03 +/- 0.25 | Behn 2021 (bubble-rich ice) |
+| K_gg (growth rate constant) | 6.18e-6 m^p/s | Behn 2021 |
+| Q_gg (growth activation energy) | 49.6 kJ/mol | Behn 2021 |
+| lambda (work fraction coefficient) | 0.01 (range 0.005-0.015) | Behn 2021 |
+| c (geometric constant) | pi ~ 3.14 | Austin & Evans 2007 |
+| gamma (grain boundary energy) | 0.065 J/m^2 | Ketcham & Hobbs 1969 |
+
+**Note:** These differ significantly from silicate defaults (ASPECT: p=3, lambda=0.1,
+gamma=1.0). Using silicate parameters would give wrong grain sizes for ice.
+
+### Iteration strategy (wattmeter mode)
+
+1. Start with d_guess = 1 mm (or sampled value as seed)
+2. Compute eta(T_i, d_guess) using composite creep (Section 2)
+3. Compute sigma_conv from boundary layer scaling
+4. Compute eps_dot from composite flow law (GBS + dislocation)
+5. Compute beta = W_dot_disl / W_dot_total
+6. Compute d_eq from wattmeter equation
+7. If |d_eq - d_guess| / d_guess > 0.01: d_guess = d_eq, goto 2
+8. Typically converges in 3-5 iterations (exponent 1/7.03 is a contraction)
+
+### Config flag
+
+```json
+"rheology": { "GRAIN_MODE": "wattmeter" }
+```
+
+`"sampled"` preserves current behavior. `"wattmeter"` computes d_eq per MC realization.
+
+### What MC still samples in wattmeter mode
+
+Everything except d_grain: T_surf, epsilon_0, q_basal, Q_v, Q_b, mu_ice, D_H2O.
+Grain size becomes a derived quantity varying per realization.
+
+### References
+
+- Paper: [Behn, Goldsby & Hirth 2021, The Cryosphere 15, 4589-4605](https://tc.copernicus.org/articles/15/4589/2021/)
+- Reference impl: [ASPECT grain_size_evolution.cc](https://github.com/geodynamics/aspect/blob/main/source/material_model/grain_size.cc)
+- Ice grain boundary energy: Ketcham & Hobbs (1969), J. Glaciology
+- Grain growth kinetics: Azuma et al. (2012)
+
+**Effort:** ~5-6 hours
+
+---
+
+## Section 5: Sobol Global Sensitivity Analysis
+
+### Problem
+
+No published Sobol sensitivity analysis exists for Europa thermal models. The
+existing test infrastructure (`test_sobol_workflow.py`) validates the pipeline at
+small N but hasn't been run in production.
+
+### Solution
+
+Production Sobol analysis across three model configurations, integrated with the
+existing `thesis_stats.py` statistical framework.
+
+### Parameter space (continuous, per configuration)
+
+| Parameter | Distribution | Sobol group |
+|-----------|-------------|-------------|
+| d_grain (sampled mode) | LogNormal(0.6mm, sigma=0.35) | grain |
+| epsilon_0 (tidal strain) | LogNormal(1.2e-5, sigma=0.3) | tidal |
+| q_radiogenic | TruncNormal(7 mW/m^2, sigma=1) | basal_heat |
+| q_tidal_silicate | LogUniform(2-20 mW/m^2) | basal_heat |
+| T_surf | Normal(104 K, sigma=7) | surface |
+| D_H2O | Normal(127 km, sigma=21) | ocean |
+| mu_ice | TruncNormal(3.5 GPa, sigma=0.5) | rigidity |
+| Q_v, Q_b | Normal(+/-5%) | activation |
+
+### Three configurations (discrete, across feature flags)
+
+1. **baseline** — Howell k, diffusion creep, Green scaling, sampled grain
+2. **improved** — Carnahan k, GBS creep, DV2021 scaling, sampled grain
+3. **wattmeter** — Carnahan k, GBS creep, DV2021 scaling, wattmeter grain
+
+### Outputs per configuration
+
+- S1 (first-order) and ST (total-order) indices with 95% CI
+- Target QoIs: H_total, D_cond, D_conv, lid_fraction, convective_flag
+- S2 (second-order interaction) matrix for top 4 parameters
+- Convergence plot: S1/ST vs N (128, 256, 512, 1024)
+
+### Sample budget
+
+- Saltelli with k=8 grouped parameters: N*(2k+2) = 1024*18 = 18,432 evals/config
+- At ~0.3 s/eval on 12 CPUs: ~25 min/config
+- 3 configs x 25 min = ~75 min total compute
+
+### Statistical synthesis (integration with thesis_stats.py)
+
+The Sobol outputs feed into the existing statistical machinery:
+
+| Tool | Application |
+|------|-------------|
+| Kendall W | Parameter ranking concordance across 3 configurations |
+| Cliff's delta | Effect size of each physics improvement on output distributions |
+| Jonckheere-Terpstra | Monotonic trend test: baseline -> improved -> wattmeter |
+| Pairwise + FDR | Which configuration pairs differ significantly? |
+| Quantile regression | Does grain size control the median or just the tails? |
+| Bootstrap CI | Precision of Sobol index estimates |
+
+### Implementation
+
+**New scripts:**
+- `autoresearch/experiments/run_sobol_analysis.py` — production runner
+- `autoresearch/experiments/run_sobol_synthesis.py` — statistical synthesis
+
+**Existing infrastructure used:**
+- SALib (`saltelli.sample()`, `sobol.analyze()`)
+- `test_sobol_workflow.py` patterns promoted to production
+- `thesis_stats.py` statistical functions
+
+### References
+
+- SALib: [github.com/SALib/SALib](https://github.com/SALib/SALib)
+- Saltelli et al. (2010), Computer Physics Communications 181, 259-270
+- Howell (2021), PSJ 2, 129 — Monte Carlo but no Sobol decomposition
+
+**Effort:** ~4-5 hours
+
+---
+
+## Section 6: Seven Pitfalls Audit
+
+### Audit Matrix
+
+| # | Pitfall | Status | Action |
+|---|---------|--------|--------|
+| 1 | Wrong reference viscosity for Ra | CLEAN: uses eta(T_mean_conv) | Add assertion guard |
+| 2 | Inconsistent FK parameter | VERIFY: confirm theta = E_a/(R*T_i^2) | Read _find_transition_temperatures(), fix if wrong |
+| 3 | FK overestimate (~20-30%) | ADDRESSED: FK_CORRECTION flag in Section 3 | Config-driven correction |
+| 4 | Wrong scaling regime (beta) | CLEAN: hardcoded beta=1/3 (chaotic) | Document as verified |
+| 5 | Implicit coupling not iterated | CLEAN: Picard 3 iters, 0.01 K tol | Consider increasing to 5 for GBS nonlinearity |
+| 6 | 2D vs 3D geometry correction | NOT APPLIED | Add GEOMETRY_CORRECTION multiplier |
+| 7 | Enhanced k_eff application | VERIFY: Nu*k only in convecting region | Add regression test |
+
+### Implementation
+
+- Pitfalls 1, 4, 5: Add assert guards + docstring references
+- Pitfall 2: Verify FK formula, fix if incorrect
+- Pitfall 3: Already covered by FK_CORRECTION
+- Pitfall 6: `GEOMETRY_CORRECTION` config flag (default 1.0, set 1.2 for 3D estimate)
+- Pitfall 7: New regression test verifying Nu enhancement is zero above interface
+
+### References
+
+- Solomatov (1995); Davaille & Jaupart (1993)
+- Reese et al. (1999); Harel et al. (2020)
+- Deschamps & Lin (2014), PEPI 234, 27
+- Grigne (2023), GJI 235, 2410
+
+**Effort:** ~2-3 hours
+
+---
+
+## Section 6b: Tidal Dissipation Validation (TidalPy Benchmark)
+
+### Problem
+
+The Andrade implementation (`Physics.py:265-282`) is active with alpha=0.2,
+zeta=1.0 but has not been validated against an independent community tool.
+
+### Solution
+
+Add a validation test comparing our tidal dissipation against TidalPy.
+
+### Verification results (from research)
+
+Our Andrade formulation matches TidalPy (Renaud & Henning 2018) exactly:
+
+```
+J*(w) = J_U - i/(eta*w) + J_U * (i*J_U*eta*zeta*w)^(-alpha) * Gamma(1+alpha)
+```
+
+Parameters: alpha=0.2 matches paper Table 1 nominal. zeta=1.0 is the standard
+value (Castillo-Rogez et al. 2011). TidalPy code defaults to alpha=0.3 but the
+paper uses 0.2. Our choice is correct for ice Ih.
+
+### Implementation
+
+- `pip install TidalPy` as dev dependency
+- New test in `EuropaProjectDJ/tests/test_tidal_validation.py`:
+  - Reference config: T=250 K, eta=5e13 Pa*s, mu=3.3 GPa, epsilon_0=1e-5
+  - Compare our `IcePhysics.tidal_heating()` vs TidalPy Andrade compliance
+  - Pass criterion: <1% relative error
+
+### References
+
+- Paper: Renaud & Henning (2018), ApJ 857:98
+- Code: [github.com/jrenaud90/TidalPy](https://github.com/jrenaud90/TidalPy)
+- Bierson (2024), Icarus — zeta sensitivity analysis
+
+**Effort:** ~1-2 hours
+
+---
+
+## Section 7: Lateral Ice Flow Diagnostic
+
+### Problem
+
+The model computes independent latitude columns with no meridional coupling.
+Ashkenazy et al. (2018) showed lateral ice flow reduces the equator-to-pole
+thickness contrast by ~10x for soft ice.
+
+### Solution
+
+Post-hoc diagnostic script (no solver changes). Option to upgrade later.
+
+### Equations (Ashkenazy, Sayag & Tziperman 2018, Nature Astronomy)
+
+**Thin-film gravity current:**
+
+```
+dH/dt = div(D * grad(H)) + S(phi)
+D = (2*A*(rho*g)^n / (n+2)) * H^(n+2)
+```
+
+where A = Glen flow law rate factor, n=3, S(phi) = net freeze/melt source.
+
+### Implementation
+
+**Script:** `Europa2D/scripts/run_lateral_flow_diagnostic.py`
+
+For each MC realization's H(phi) profile:
+1. Compute diffusivity D(phi) from Glen flow law at basal temperature
+2. Estimate relaxation timescale tau = L^2 / D
+3. Solve diffusion to steady state for H_eq(phi)
+4. Report: original DeltaH, relaxed DeltaH_eq, reduction factor
+
+**Output:** Diagnostic table + figure showing before/after profiles and
+distribution of reduction factors across the MC ensemble.
+
+### References
+
+- Ashkenazy, Sayag & Tziperman (2018), Nature Astronomy 2, 43-49
+
+**Effort:** ~2 hours
+
+---
+
+## Section 8: Experiment Matrix Extension
+
+### Design
+
+Extend `run_experiment_matrix.py` to include the new feature flags as grid
+dimensions. Recommended factorial for thesis:
+
+```
+conductivity:  [Howell, Carnahan]         — 2
+creep:         [diffusion, composite_gbs]  — 2
+nu_scaling:    [green, dv2021]             — 2
+grain_mode:    [sampled, wattmeter]        — 2
+```
+
+16 physics combinations. Combined with existing ocean pattern (3) and surface
+preset (2) dimensions: 16 * 6 = 96 total combinations.
+
+At N=150 samples/combo and ~0.3 s/eval on 12 CPUs:
+- Per combo: ~4 seconds
+- Total: 96 * 150 * 0.3 / 12 ~ 6 minutes
+
+Manageable on local hardware. For N=500 (thesis-grade): ~20 minutes.
+
+### Implementation
+
+- Extend grid definition in `run_experiment_matrix.py`
+- Each combo writes a JSON diagnostics file (existing pattern)
+- Add summary aggregation script for cross-combo comparison
+
+**Effort:** ~1-2 hours
+
+---
+
+## Validation Strategy
+
+### Regression tests (update baselines)
+
+Every section triggers regression test updates. Run full suite after each change:
+- `Europa2D/tests/` — 35+ tests
+- `EuropaProjectDJ/tests/` — 30+ tests
+
+### Literature benchmarks
+
+| Target | Source | Expected range |
+|--------|--------|---------------|
+| Shell thickness | Juno MWR (Levin et al. 2026) | 29 +/- 10 km |
+| Convective fraction | Howell (2021) | ~1/3 of shell |
+| Equilibrium thickness | Green & Montesi (2021) | 13-25 km (equator) |
+| Polar shell | Quick & Marsh (2015) | ~17 km (with tidal) |
+
+### Cross-validation
+
+- TidalPy benchmark (Section 6b): <1% error on Andrade dissipation
+- 1D vs 2D parity: single-column 2D must match 1D within 2%
+- Carnahan k(T) vs PlanetProfile: exact match (both 612/T)
+
+---
+
+## Implementation Order
+
+1. **Conductivity swap** (Section 1) — foundation, no dependencies
+2. **GBS composite creep** (Section 2) — highest physics impact
+3. **Pitfalls audit** (Section 6) — verify before building on top
+4. **TidalPy validation** (Section 6b) — quick, independent
+5. **DV2021 scaling** (Section 3) — depends on correct viscosity (Section 2)
+6. **Wattmeter grain size** (Section 4) — depends on GBS creep (Section 2)
+7. **Config & experiment matrix** (Section 8) — wires everything together
+8. **Sobol analysis** (Section 5) — runs on final model
+9. **Lateral flow diagnostic** (Section 7) — post-hoc, no dependencies
+
+Total estimated effort: ~24-30 hours of implementation.
+
+---
+
+## Out of Scope (Future Work)
+
+- **Runtime lateral ice flow** — meridional coupling between columns (Section 7 is diagnostic-only)
+- **Bercovici-Ricard two-phase grain damage** — most complete theory but unadapted to ice
+- **Full 2D/3D numerical convection** — ASPECT/StagYY scale; outside parameterized model scope
+- **Porosity-dependent conductivity** — relevant for near-surface only, not convective dynamics
+- **Clathrate hydrate conductivity** — would require compositional model not currently in scope
