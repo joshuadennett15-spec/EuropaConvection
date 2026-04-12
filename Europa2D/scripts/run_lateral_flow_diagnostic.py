@@ -61,11 +61,59 @@ N_GLEN: int = 3                          # Glen flow law exponent
 #   Users can override with --glen-A.
 GLEN_A_DEFAULT: float = 1.0e-25          # Pa^-3 s^-1
 
+# Arrhenius parameters for temperature-dependent Glen A (cold ice, n=3, T < 258 K)
+#   Paterson (1994) / Goldsby & Kohlstedt (2001) values
+GLEN_Q_COLD: float = 60.0e3             # J/mol  — activation energy for cold ice
+GLEN_R_GAS: float = 8.314              # J/(mol·K)
+GLEN_T_REF: float = 180.0              # K      — reference temperature for A_ref
+
 # Convergence criterion for explicit diffusion integration
 CONVERGENCE_TOL: float = 1.0e-6         # km — max change in H per step
 
 # Maximum diffusion integration steps (safety cap)
 MAX_DIFFUSION_STEPS: int = 200_000
+
+# ---------------------------------------------------------------------------
+# Temperature-dependent Glen rate factor
+# ---------------------------------------------------------------------------
+
+
+def glen_A_from_temperature(
+    T_K: NDArray[np.float64],
+    A_ref: float = GLEN_A_DEFAULT,
+    T_ref: float = GLEN_T_REF,
+    Q: float = GLEN_Q_COLD,
+    R: float = GLEN_R_GAS,
+) -> NDArray[np.float64]:
+    """
+    Arrhenius-based Glen rate factor as a function of basal temperature.
+
+        A(T) = A_ref * exp(-Q/(R*T) + Q/(R*T_ref))
+
+    This normalises so that A(T_ref) == A_ref exactly, keeping continuity
+    with the default scalar value for users who do not supply temperatures.
+
+    Parameters
+    ----------
+    T_K : array, shape (n_lat,)
+        Basal temperature in Kelvin at each latitude column.
+    A_ref : float
+        Reference rate factor at T_ref (Pa^-3 s^-1).  Default: GLEN_A_DEFAULT.
+    T_ref : float
+        Reference temperature (K).  Default: 180 K.
+    Q : float
+        Activation energy (J/mol).  Default: 60 kJ/mol (cold ice, n=3).
+    R : float
+        Universal gas constant (J/(mol·K)).
+
+    Returns
+    -------
+    A : array, shape (n_lat,)
+        Temperature-dependent Glen rate factor in Pa^-3 s^-1.
+    """
+    T_K = np.asarray(T_K, dtype=float)
+    return A_ref * np.exp(-Q / (R * T_K) + Q / (R * T_ref))
+
 
 # ---------------------------------------------------------------------------
 # Glen diffusivity
@@ -74,7 +122,7 @@ MAX_DIFFUSION_STEPS: int = 200_000
 
 def glen_diffusivity(
     H_m: NDArray[np.float64],
-    A: float = GLEN_A_DEFAULT,
+    A: float | NDArray[np.float64] = GLEN_A_DEFAULT,
     rho: float = RHO_ICE,
     g: float = GRAVITY_EUROPA,
     n: int = N_GLEN,
@@ -89,8 +137,9 @@ def glen_diffusivity(
     ----------
     H_m : array, shape (n_lat,)
         Ice thickness in metres.
-    A : float
-        Glen rate factor in Pa^-n s^-1.
+    A : float or array, shape (n_lat,)
+        Glen rate factor in Pa^-n s^-1.  May be a scalar (uniform) or a
+        per-latitude array (e.g., from glen_A_from_temperature).
     rho : float
         Ice density in kg/m^3.
     g : float
@@ -119,15 +168,26 @@ def glen_diffusivity(
 def solve_thin_film_diffusion(
     latitudes_deg: NDArray[np.float64],
     H_km: NDArray[np.float64],
-    A: float = GLEN_A_DEFAULT,
+    A: float | NDArray[np.float64] = GLEN_A_DEFAULT,
     *,
     max_steps: int = MAX_DIFFUSION_STEPS,
     tol_km: float = CONVERGENCE_TOL,
 ) -> tuple[NDArray[np.float64], float]:
     """
-    Integrate the 1-D nonlinear diffusion equation on the latitude grid.
+    Integrate the 1-D nonlinear diffusion equation on the latitude grid,
+    including the spherical cos(phi) metric factors.
 
-        dH/dt = d/dphi [ D(H) * dH/dphi ] / (R * cos(phi))   (latitude form)
+    Thin-film equation on a sphere in the latitude coordinate:
+
+        dH/dt = (1 / (R*cos(phi))) * d/dphi [ cos(phi) * D(H) * (1/R) * dH/dphi ]
+
+    Discretised with face-centred cos(phi) weighting:
+        - flux_{i+1/2} = cos_face * D_face * dH/dphi / R
+          where  cos_face = 0.5 * (cos(phi_i) + cos(phi_{i+1}))
+        - dH/dt[i] = (flux_{i+1/2} - flux_{i-1/2}) / (R * dphi * cos(phi_i))
+
+    At the pole (cos(phi)=0) a small epsilon floor avoids division-by-zero
+    (L'Hôpital limit: the flux divergence is finite there).
 
     Mass is conserved (Neumann BCs: zero flux at both ends).
 
@@ -137,8 +197,8 @@ def solve_thin_film_diffusion(
         Latitude in degrees (0 = equator, 90 = pole).
     H_km : array, shape (n_lat,)
         Initial ice thickness in km.
-    A : float
-        Glen rate factor in Pa^-n s^-1.
+    A : float or array, shape (n_lat,)
+        Glen rate factor in Pa^-n s^-1 (scalar or per-latitude array).
     max_steps : int
         Maximum number of explicit time steps.
     tol_km : float
@@ -154,7 +214,14 @@ def solve_thin_film_diffusion(
     H_m = H_km * 1.0e3                                # km -> m
     phi_rad = np.deg2rad(latitudes_deg)
     dphi = phi_rad[1] - phi_rad[0]                    # uniform grid assumed
-    L = RADIUS_EUROPA_M * dphi                        # arc-length step in m
+
+    # cos(phi) at node centres, with an epsilon floor to avoid division-by-zero
+    # at the pole (phi = 90 deg).
+    _COS_EPS: float = 1.0e-6
+    cos_phi = np.maximum(np.cos(phi_rad), _COS_EPS)  # shape (n_lat,)
+
+    # cos(phi) at face centres (between nodes i and i+1)
+    cos_face = 0.5 * (cos_phi[:-1] + cos_phi[1:])    # shape (n_lat-1,)
 
     # Diffusivity on the initial profile (for timescale estimate)
     D0 = glen_diffusivity(H_m, A=A)
@@ -163,41 +230,49 @@ def solve_thin_film_diffusion(
     tau_s = L_total ** 2 / D_mean if D_mean > 0.0 else np.inf
     tau_yr = tau_s / (3.15576e7)                     # s -> years
 
-    # CFL-stable time step: dt <= 0.5 * L^2 / D_max
-    D_max = float(np.max(D0))
-    if D_max <= 0.0:
+    # CFL-stable time step.  With the spherical geometry the effective
+    # diffusion rate is amplified by 1/cos(phi) at high latitudes, so we
+    # incorporate the geometry factor into the stability estimate.
+    # D_eff_max = max(D0 / cos_phi) gives a conservative upper bound.
+    D_eff_max = float(np.max(D0 / cos_phi))
+    if D_eff_max <= 0.0:
         return H_km.copy(), tau_yr
 
-    dt_s = 0.4 * L ** 2 / D_max                     # slightly below CFL limit
+    # Arc-length step for CFL: L = R*dphi
+    L = RADIUS_EUROPA_M * dphi
+    dt_s = 0.4 * L ** 2 / D_eff_max                 # slightly below CFL limit
 
     H = H_m.copy()
     n_lat = len(H)
 
     for _ in range(max_steps):
         D = glen_diffusivity(H, A=A)
-        # Face-centred diffusivity (average of adjacent nodes)
+        # Face-centred diffusivity (arithmetic average of adjacent nodes)
         D_face = 0.5 * (D[:-1] + D[1:])             # shape (n_lat-1,)
 
-        # Flux at interior faces
-        dH_dphi = np.diff(H) / L                     # shape (n_lat-1,)
-        flux = D_face * dH_dphi                      # shape (n_lat-1,)
+        # Gradient in latitude (dimensionless: dH / R*dphi = dH / L)
+        dH_dphi = np.diff(H) / L                     # shape (n_lat-1,), units: m/m = 1
 
-        # Divergence: (flux_right - flux_left) / L
+        # Spherical flux: cos_face * D_face * dH/dphi
+        # (the 1/R factor from the gradient is absorbed into L=R*dphi above)
+        flux = cos_face * D_face * dH_dphi           # shape (n_lat-1,)
+
+        # Divergence with spherical metric: dH[i] = (flux_right - flux_left) / (L * cos_phi[i])
         dH = np.zeros(n_lat)
-        dH[1:-1] = (flux[1:] - flux[:-1]) / L       # interior nodes
+        dH[1:-1] = (flux[1:] - flux[:-1]) / (L * cos_phi[1:-1])   # interior
         # Neumann BCs: zero flux at both ends (equator and pole)
-        dH[0] = flux[0] / L
-        dH[-1] = -flux[-1] / L
+        dH[0] = flux[0] / (L * cos_phi[0])
+        dH[-1] = -flux[-1] / (L * cos_phi[-1])
 
         H_new = H + dt_s * dH
 
         # Enforce H >= 0 (physically required)
         H_new = np.maximum(H_new, 0.0)
 
-        # Re-CFL if D grows
-        D_new_max = float(np.max(glen_diffusivity(H_new, A=A)))
-        if D_new_max > 0.0:
-            dt_s = min(dt_s, 0.4 * L ** 2 / D_new_max)
+        # Re-CFL if D grows (keep adaptive stability)
+        D_new_eff_max = float(np.max(glen_diffusivity(H_new, A=A) / cos_phi))
+        if D_new_eff_max > 0.0:
+            dt_s = min(dt_s, 0.4 * L ** 2 / D_new_eff_max)
 
         change_km = float(np.max(np.abs(H_new - H))) * 1.0e-3
         H = H_new
@@ -228,10 +303,13 @@ def analyse_profile(
     H_km : array, shape (n_lat,)
         Ice thickness in km.
     T_c_K : array, shape (n_lat,) or None
-        Basal (conductive lid base) temperatures in K.  Currently informational;
-        future versions can use this to make A temperature-dependent.
+        Basal (conductive lid base) temperatures in K.  When provided, the
+        Glen rate factor is computed per latitude column via the Arrhenius
+        relation A(T) = A_ref * exp(-Q/(R*T) + Q/(R*T_ref)), which reflects
+        the real temperature-dependence of cold-ice creep at the bed.
+        When None, falls back to the scalar A argument (CLI --glen-A default).
     A : float
-        Glen rate factor.
+        Glen rate factor (Pa^-3 s^-1).  Used only when T_c_K is None.
 
     Returns
     -------
@@ -239,7 +317,15 @@ def analyse_profile(
         delta_H_orig_km, delta_H_eq_km, reduction_factor,
         tau_yr, H_eq_km, H_orig_km
     """
-    H_eq_km, tau_yr = solve_thin_film_diffusion(latitudes_deg, H_km, A=A)
+    # Resolve the effective rate factor: temperature-dependent array or scalar.
+    if T_c_K is not None:
+        A_eff: float | NDArray[np.float64] = glen_A_from_temperature(
+            np.asarray(T_c_K, dtype=float), A_ref=A
+        )
+    else:
+        A_eff = A
+
+    H_eq_km, tau_yr = solve_thin_film_diffusion(latitudes_deg, H_km, A=A_eff)
 
     delta_H_orig = float(np.max(H_km) - np.min(H_km))
     delta_H_eq = float(np.max(H_eq_km) - np.min(H_eq_km))
