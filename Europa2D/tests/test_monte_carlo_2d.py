@@ -24,7 +24,7 @@ class TestMonteCarloRunner2D:
         assert results.ocean_pattern == "uniform"
         # Default: uniform_transport -> ocean_amplitude=0.0, q_star=0.0
         assert results.ocean_amplitude == pytest.approx(0.0, abs=1e-10)
-        assert results.T_floor == pytest.approx(50.0)
+        assert results.T_floor == pytest.approx(46.0)
         assert results.q_star == pytest.approx(0.0, abs=1e-10)
         assert results.mantle_tidal_fraction == pytest.approx(0.5)
 
@@ -73,8 +73,8 @@ def test_results_default_t_floor_matches_2d_baseline():
         Ti_median=np.zeros(5),
         Ti_mean=np.zeros(5),
     )
-    assert results.T_floor == 50.0, (
-        f"Default T_floor={results.T_floor}, expected 50.0 K"
+    assert results.T_floor == 46.0, (
+        f"Default T_floor={results.T_floor}, expected 46.0 K (Ashkenazy low-Q)"
     )
 
 

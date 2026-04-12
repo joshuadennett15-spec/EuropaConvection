@@ -13,7 +13,7 @@ from latitude_profile import LatitudeProfile
 def _sample_profile() -> LatitudeProfile:
     return LatitudeProfile(
         T_eq=104.0,
-        T_floor=50.0,
+        T_floor=46.0,
         epsilon_eq=6e-6,
         epsilon_pole=1.2e-5,
         q_ocean_mean=0.02,

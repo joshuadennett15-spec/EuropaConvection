@@ -160,7 +160,7 @@ class TestSamplerNewFields:
     def test_sampler_records_tidal_scale_and_uplift(self):
         sampler = LatitudeParameterSampler(seed=42)
         params, _ = sampler.sample()
-        assert params["q_tidal_scale"] == pytest.approx(1.20)
+        assert params["q_tidal_scale"] == pytest.approx(1.0)
         assert params["q_basal"] >= params["q_basal_inherited"]
 
 
