@@ -296,7 +296,7 @@ def run_single_scenario(
         epsilon_eq=6e-6,
         epsilon_pole=1.2e-5,
         q_ocean_mean=q_ocean_mean,
-        T_floor=50.0,
+        T_floor=46.0,
     )
 
     print(f"\n=== {scenario.name}: {scenario.citation} ===")
@@ -371,7 +371,7 @@ def run_benchmark_suite() -> None:
             epsilon_eq=6e-6,
             epsilon_pole=1.2e-5,
             q_ocean_mean=0.02,
-            T_floor=50.0,
+            T_floor=46.0,
         )
 
         solver = AxialSolver2D(

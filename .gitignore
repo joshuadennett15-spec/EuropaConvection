@@ -9,6 +9,11 @@
 
 # Scratch and generated analysis output
 results/
+graphify-out/
+.graphify_ast.json
+.graphify_detect.json
+.graphify_semantic_status.txt
+.graphify_uncached.txt
 tmp_eq_depleted_stats/
 docs/research/*.aux
 docs/research/*.log

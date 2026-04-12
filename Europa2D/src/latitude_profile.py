@@ -48,7 +48,7 @@ class LatitudeProfile:
     q_ocean_mean: float = 0.02
     ocean_pattern: OceanPattern = "uniform"
     ocean_amplitude: Optional[float] = None
-    T_floor: float = 50.0
+    T_floor: float = 46.0  # Ashkenazy (2019) low-Q baseline
     q_star: Optional[float] = None
     mantle_tidal_fraction: float = 0.5
     strict_q_star: bool = True

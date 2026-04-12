@@ -336,13 +336,11 @@ class AxialSolver2D:
             self.profile.ocean_heat_flux(phi) for phi in self.latitudes
         ])
 
-        H_history = [self.get_thickness_profile() / 1000.0]
         converged = False
         final_step = 0
 
         for step in range(max_steps):
             velocities = self.solve_step(q_ocean_profile)
-            H_history.append(self.get_thickness_profile() / 1000.0)
 
             max_vel = np.max(np.abs(velocities))
             final_step = step
@@ -390,6 +388,6 @@ class AxialSolver2D:
             'latitudes_deg': self.get_latitudes_deg(),
             'converged': converged,
             'steps': final_step + 1,
-            'H_history_km': np.array(H_history),
+
             'diagnostics': diagnostics,
         }

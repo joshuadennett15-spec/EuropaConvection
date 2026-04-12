@@ -1,0 +1,34 @@
+# Generated outputs
+Europa2D/results/
+Europa2D/figures/
+EuropaProjectDJ/results/
+EuropaProjectDJ/figures/
+autoresearch/experiments/results/
+
+# Vendored / reference libraries
+EuropaProjectDJ/reference/
+
+# Binary archives
+*.npz
+*.pkl
+*.pickle
+
+# Build / cache artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+graphify-out/
+.graphify_*
+
+# IDE / tool state
+.claude/
+.vscode/
+.git/
+
+# Large generated docs (keep research docs, skip compiled)
+docs/research/*.pdf
+
+# Debug / temp
+debug.log
+pytest_output.txt
+attrib_out.txt

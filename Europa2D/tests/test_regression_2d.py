@@ -77,6 +77,74 @@ class TestRegression2D:
             assert d['D_cond_km'] <= self.H[i] + 0.001
 
 
+def _run_3col_dv2021():
+    """3-column regression case with DV2021 scaling.
+
+    Same parameters as _run_3col() but uses DV2021 mixed-heating scaling
+    instead of Green, providing regression coverage for the new physics path.
+    """
+    from constants import Convection as ConvConst
+    ConvConst.NU_SCALING = "dv2021"
+
+    profile = LatitudeProfile(
+        T_eq=96.0, T_floor=46.0,
+        epsilon_eq=6e-6, epsilon_pole=1.2e-5,
+        q_ocean_mean=0.008, ocean_pattern='uniform',
+    )
+    solver = AxialSolver2D(
+        n_lat=3, nx=31, dt=1e12,
+        latitude_profile=profile, use_convection=True,
+        initial_thickness=40e3,
+    )
+    return solver.run_to_equilibrium(threshold=1e-12, max_steps=500, verbose=False), solver
+
+
+class TestRegressionDV2021:
+    """Anchor values for the 3-column case under DV2021 scaling.
+
+    Mirrors TestRegression2D but with nu_scaling="dv2021" (Deschamps & Vilella
+    2021 mixed-heating closure).  Baselines captured at max_steps=500,
+    threshold=1e-12, identical to the Green fixture.
+    """
+
+    def setup_method(self):
+        self.result, self.solver = _run_3col_dv2021()
+        self.H = self.result['H_profile_km']
+        self.diag = self.result['diagnostics']
+
+    def test_equator_thickness_dv2021(self):
+        assert self.H[0] == pytest.approx(32.672, abs=0.5)
+
+    def test_pole_thickness_dv2021(self):
+        assert self.H[2] == pytest.approx(56.839, abs=0.1)
+
+    def test_equator_convecting_dv2021(self):
+        d = self.diag[0]
+        assert d['Ra'] > 1000.0
+        assert d['Nu'] > 1.0
+        assert d['D_cond_km'] == pytest.approx(23.208, abs=0.5)
+        assert d['D_conv_km'] == pytest.approx(9.477, abs=1.0)
+
+    def test_pole_subcritical_dv2021(self):
+        d = self.diag[2]
+        assert d['Ra'] < 1000.0
+        assert d['Nu'] == pytest.approx(1.0, abs=0.001)
+
+    def test_latitude_monotonic_dv2021(self):
+        """Shell thickness should increase from equator to pole."""
+        assert self.H[0] < self.H[2]
+
+    def test_D_cond_less_than_H_total_dv2021(self):
+        """D_cond must never exceed H_total."""
+        for i, d in enumerate(self.diag):
+            assert d['D_cond_km'] <= self.H[i] + 0.001
+
+    def test_dv2021_differs_from_green(self):
+        """DV2021 and Green scaling must produce different equator thicknesses."""
+        result_green, _ = _run_3col()
+        assert self.H[0] != pytest.approx(result_green['H_profile_km'][0], abs=0.01)
+
+
 class TestBandMeanDiagnostics:
     """Band means (not pole-node readings) are the thesis-facing outputs."""
 

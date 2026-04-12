@@ -56,7 +56,7 @@ def run_mc_scenario(
     dt: float,
     max_steps: int,
     grain_latitude_mode: str = "global",
-    q_tidal_scale: float = 1.20,
+    q_tidal_scale: float = 1.0,
 ) -> str:
     """Run one Monte Carlo scenario and return the result path."""
     scenario = get_scenario(scenario_name)

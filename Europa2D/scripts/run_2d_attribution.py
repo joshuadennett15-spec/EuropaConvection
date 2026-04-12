@@ -36,7 +36,7 @@ from run_2d_single import FIXED_PARAMS
 def build_attribution_scenarios(
     q_ocean_mean: float = 0.02,
     T_eq: float = Thermal.SURFACE_TEMP_MEAN,
-    T_floor: float = 50.0,
+    T_floor: float = 46.0,
     epsilon_eq: float = 6e-6,
     epsilon_pole: float = 1.2e-5,
 ) -> dict[str, LatitudeProfile]:

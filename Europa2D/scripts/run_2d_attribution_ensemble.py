@@ -390,8 +390,8 @@ def run_paired_attribution_ensemble(
     rannacher_steps: int = 4,
     coordinate_system: str = "auto",
     grain_latitude_mode: str = "global",
-    q_tidal_scale: float = 1.20,
-    T_floor: float = 50.0,
+    q_tidal_scale: float = 1.0,
+    T_floor: float = 46.0,
 ) -> str:
     """Run the paired 4-case attribution ensemble and save an NPZ archive."""
     scenario = get_scenario(scenario_name)

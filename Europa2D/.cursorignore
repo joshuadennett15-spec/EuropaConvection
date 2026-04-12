@@ -1,0 +1,14 @@
+# Keep standalone 2D work focused on code and validation.
+
+.git/
+.pytest_cache/
+__pycache__/
+
+results/
+figures/
+
+*.npz
+*.pdf
+*.png
+*.jpg
+*.jpeg

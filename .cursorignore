@@ -1,0 +1,43 @@
+# Keep assistant context focused on active code, tests, and lightweight docs.
+
+# VCS / local agent state
+.git/
+.claude/
+.idea/
+.pytest_cache/
+**/__pycache__/
+**/*.py[cod]
+
+# Machine-generated repo metadata
+graphify-out/
+EuropaProjectDJ/graphify-out/
+.graphify_ast.json
+.graphify_detect.json
+.graphify_semantic_status.txt
+.graphify_uncached.txt
+
+# Generated data and figures
+results/
+Europa2D/results/
+Europa2D/figures/
+EuropaProjectDJ/results/
+EuropaProjectDJ/figures/
+autoresearch/experiments/results/
+**/*.npz
+**/*.pdf
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.docx
+**/*.xlsx
+**/*.ipynb
+
+# Large vendor/reference trees
+EuropaProjectDJ/reference/
+
+# High-volume prose that is useful for research archival, but expensive to index
+docs/research/
+docs/superpowers/
+EuropaProjectDJ/docs/research/
+EuropaProjectDJ/docs/poster/
+EuropaProjectDJ/docs/thesis/
