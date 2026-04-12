@@ -48,10 +48,12 @@ class MonteCarloResults2D:
     runtime_seconds: float
     ocean_pattern: str
     ocean_amplitude: float
-    T_floor: float = 50.0
+    T_floor: float = 46.0
     q_star: float = 0.0
     mantle_tidal_fraction: float = 0.5
-    q_tidal_scale: float = 1.20
+    q_tidal_scale: float = 1.0
+    surface_preset: str = "ashkenazy_low_q"
+    grain_center_mm: float = 0.6
     D_cond_profiles: Optional[npt.NDArray[np.float64]] = None   # (n_valid, n_lat)
     D_conv_profiles: Optional[npt.NDArray[np.float64]] = None
     Ra_profiles: Optional[npt.NDArray[np.float64]] = None
@@ -111,13 +113,30 @@ def _run_single_2d_sample(
     coordinate_system: str,
     grain_latitude_mode: str = "global",
     grain_strain_exponent: float = 0.5,
-    q_tidal_scale: float = 1.20,
-    T_floor: float = 50.0,
+    q_tidal_scale: float = 1.0,
+    surface_preset: str = "ashkenazy_low_q",
+    grain_center_mm: float = 0.6,
     hypothesis_mechanism: Optional[str] = None,
     hypothesis_params: Optional[dict] = None,
+    nu_scaling: str = "green",
+    conductivity_model: str = "Carnahan",
+    creep_model: str = "diffusion",
+    grain_mode: str = "sampled",
 ) -> Optional[Dict[str, Any]]:
     """Worker function for one 2D MC iteration."""
     try:
+        # Override module-level constants in this worker process.
+        # Safe because each multiprocessing worker is an isolated process (Windows spawn).
+        from constants import Convection as ConvConst
+        ConvConst.NU_SCALING = nu_scaling
+
+        # Override config singleton so Thermal.conductivity() picks up the right model
+        from ConfigManager import ConfigManager
+        _cfg = ConfigManager()
+        _cfg._config.setdefault("thermal", {})["CONDUCTIVITY_MODEL"] = conductivity_model
+        _cfg._config.setdefault("rheology", {})["CREEP_MODEL"] = creep_model
+        _cfg._config.setdefault("rheology", {})["GRAIN_MODE"] = grain_mode
+
         sampler = LatitudeParameterSampler(
             seed=base_seed + sample_id,
             ocean_pattern=ocean_pattern,
@@ -126,7 +145,8 @@ def _run_single_2d_sample(
             grain_latitude_mode=grain_latitude_mode,
             grain_strain_exponent=grain_strain_exponent,
             q_tidal_scale=q_tidal_scale,
-            T_floor_mean=T_floor,
+            surface_preset=surface_preset,
+            grain_center_mm=grain_center_mm,
         )
         shared_params, profile = sampler.sample()
         D_H2O = shared_params['D_H2O']
@@ -187,8 +207,9 @@ def _run_single_2d_sample(
                 lats, lats[valid_mask], H_km[valid_mask],
             )
 
-        # Extract diagnostics
+        # Extract diagnostics, then free the solver result dict
         diag = result['diagnostics']
+        del result
         D_cond = np.array([d['D_cond_km'] for d in diag])
         D_conv = np.array([d['D_conv_km'] for d in diag])
         Ra = np.array([d['Ra'] for d in diag])
@@ -230,16 +251,32 @@ class MonteCarloRunner2D:
         ocean_pattern: OceanPattern = "uniform",
         ocean_amplitude: Optional[float] = None,
         q_star: Optional[float] = None,
-        T_floor: float = 50.0,
+        surface_preset: str = "ashkenazy_low_q",
+        grain_center_mm: float = 0.6,
         mantle_tidal_fraction: float = 0.5,
         verbose: bool = True,
         rannacher_steps: int = 4,
         coordinate_system: str = 'auto',
         grain_latitude_mode: str = "global",
         grain_strain_exponent: float = 0.5,
-        q_tidal_scale: float = 1.20,
+        q_tidal_scale: float = 1.0,
         hypothesis=None,
+        nu_scaling: str = "green",
+        conductivity_model: str = "Carnahan",
+        creep_model: str = "diffusion",
+        grain_mode: str = "sampled",
     ):
+        from literature_scenarios import SURFACE_PRESETS
+        _VALID_NU_SCALING = ("green", "howell", "isoviscous_benchmark", "dv2021")
+        if nu_scaling not in _VALID_NU_SCALING:
+            raise ValueError(
+                f"Unknown nu_scaling={nu_scaling!r}. Valid: {_VALID_NU_SCALING}"
+            )
+        if surface_preset not in SURFACE_PRESETS:
+            raise ValueError(
+                f"Unknown surface_preset={surface_preset!r}. "
+                f"Valid: {list(SURFACE_PRESETS.keys())}"
+            )
         self.n_iterations = n_iterations
         self.seed = seed if seed is not None else int(time.time())
         self.n_workers = n_workers or max(1, mp.cpu_count() - 1)
@@ -253,7 +290,9 @@ class MonteCarloRunner2D:
         self.ocean_pattern = ocean_pattern
         self.ocean_amplitude = ocean_amplitude
         self.q_star = q_star
-        self.T_floor = T_floor
+        self.surface_preset = surface_preset
+        self.grain_center_mm = grain_center_mm
+        self.T_floor = SURFACE_PRESETS[surface_preset].T_floor
         self.mantle_tidal_fraction = mantle_tidal_fraction
         self.verbose = verbose
         self.rannacher_steps = rannacher_steps
@@ -262,6 +301,10 @@ class MonteCarloRunner2D:
         self.grain_strain_exponent = grain_strain_exponent
         self.q_tidal_scale = q_tidal_scale
         self.hypothesis = hypothesis
+        self.nu_scaling = nu_scaling
+        self.conductivity_model = conductivity_model
+        self.creep_model = creep_model
+        self.grain_mode = grain_mode
 
     def run(self) -> MonteCarloResults2D:
         if self.verbose:
@@ -292,28 +335,44 @@ class MonteCarloRunner2D:
             grain_latitude_mode=self.grain_latitude_mode,
             grain_strain_exponent=self.grain_strain_exponent,
             q_tidal_scale=self.q_tidal_scale,
-            T_floor=self.T_floor,
+            surface_preset=self.surface_preset,
+            grain_center_mm=self.grain_center_mm,
             hypothesis_mechanism=self.hypothesis.mechanism if self.hypothesis else None,
             hypothesis_params=self.hypothesis.params if self.hypothesis else None,
+            nu_scaling=self.nu_scaling,
+            conductivity_model=self.conductivity_model,
+            creep_model=self.creep_model,
+            grain_mode=self.grain_mode,
         )
 
-        # Sequential or parallel execution
+        # Stream results: extract only the small arrays we need from each
+        # sample dict, letting the full dict (including any large temporaries)
+        # be garbage-collected immediately.
+        _FIELDS = ('H_km', 'D_cond_km', 'D_conv_km', 'Ra', 'Nu',
+                   'lid_fraction', 'T_c', 'Ti')
+
+        def _collect(iterator):
+            results = []
+            n_valid = 0
+            for i, raw in enumerate(iterator):
+                if raw is not None:
+                    results.append({k: raw[k] for k in _FIELDS})
+                    n_valid += 1
+                else:
+                    results.append(None)
+                if self.verbose and (i + 1) % max(1, self.n_iterations // 10) == 0:
+                    print(f"  Progress: {100 * (i + 1) / self.n_iterations:5.1f}% | Valid: {n_valid}/{i + 1}")
+            return results
+
         if self.n_workers > 1:
             with mp.Pool(self.n_workers) as pool:
-                chunksize = max(10, self.n_iterations // (self.n_workers * 4))
-                results = []
-                for i, result in enumerate(pool.imap_unordered(worker, range(self.n_iterations), chunksize=chunksize)):
-                    results.append(result)
-                    if self.verbose and (i + 1) % max(1, self.n_iterations // 10) == 0:
-                        valid = sum(1 for r in results if r is not None)
-                        print(f"  Progress: {100 * (i + 1) / self.n_iterations:5.1f}% | Valid: {valid}/{i + 1}")
+                chunksize = max(
+                    1,
+                    min(10, self.n_iterations // max(1, self.n_workers * 4)),
+                )
+                results = _collect(pool.imap_unordered(worker, range(self.n_iterations), chunksize=chunksize))
         else:
-            results = []
-            for i in range(self.n_iterations):
-                results.append(worker(i))
-                if self.verbose and (i + 1) % max(1, self.n_iterations // 10) == 0:
-                    valid = sum(1 for r in results if r is not None)
-                    print(f"  Progress: {100 * (i + 1) / self.n_iterations:5.1f}% | Valid: {valid}/{i + 1}")
+            results = _collect(worker(i) for i in range(self.n_iterations))
 
         runtime = time.time() - start_time
         valid_results = [r for r in results if r is not None]
@@ -401,7 +460,9 @@ class MonteCarloRunner2D:
             T_c_mean=T_c_mean,
             Ti_median=Ti_median,
             Ti_mean=Ti_mean,
-            q_tidal_scale=self.q_tidal_scale if hasattr(self, 'q_tidal_scale') else 1.20,
+            q_tidal_scale=self.q_tidal_scale,
+            surface_preset=getattr(self, 'surface_preset', 'ashkenazy_low_q'),
+            grain_center_mm=getattr(self, 'grain_center_mm', 0.6),
             D_cond_median=D_cond_median,
             D_cond_mean=D_cond_mean,
             D_cond_sigma_low=D_cond_sigma_low,

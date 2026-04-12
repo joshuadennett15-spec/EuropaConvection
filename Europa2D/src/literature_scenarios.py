@@ -41,7 +41,7 @@ class LiteratureScenario:
         epsilon_eq: float,
         epsilon_pole: float,
         q_ocean_mean: float,
-        T_floor: float = 50.0,
+        T_floor: float = 46.0,
     ) -> LatitudeProfile:
         """Create a LatitudeProfile using the preset forcing family."""
         return LatitudeProfile(

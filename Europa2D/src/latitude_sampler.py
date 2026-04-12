@@ -16,6 +16,7 @@ from typing import Dict, Optional, Tuple
 from audited_sampler import AuditedShellSampler
 from constants import Planetary
 from latitude_profile import LatitudeProfile, OceanPattern
+from literature_scenarios import SURFACE_PRESETS, SurfacePreset
 
 
 class LatitudeParameterSampler:
@@ -44,10 +45,9 @@ class LatitudeParameterSampler:
         'q_star', 'mantle_tidal_fraction', 'tidal_pattern',
     )
 
-    # Small 2D-only uplift on the inherited tidal/ocean component. This keeps
-    # the 1D audited prior unchanged while nudging the 2D benchmark away from
-    # the most strongly lid-dominated corner of parameter space.
-    TIDAL_FLUX_SCALE = 1.20
+    # No implicit tidal uplift in the default path.  Pass q_tidal_scale > 1
+    # explicitly when running sensitivity experiments (see vetting note §E).
+    TIDAL_FLUX_SCALE = 1.0
 
     def __init__(
         self,
@@ -59,13 +59,29 @@ class LatitudeParameterSampler:
         q_tidal_scale: float = TIDAL_FLUX_SCALE,
         grain_latitude_mode: str = "global",
         grain_strain_exponent: float = 0.5,
-        T_floor_mean: float = 50.0,
+        surface_preset: str = "ashkenazy_low_q",
+        grain_center_mm: float = 0.6,
     ):
+        # Surface BC from named preset — no more hardcoded magic numbers
+        if surface_preset not in SURFACE_PRESETS:
+            raise ValueError(
+                f"Unknown surface_preset={surface_preset!r}. "
+                f"Valid: {list(SURFACE_PRESETS.keys())}"
+            )
+        preset = SURFACE_PRESETS[surface_preset]
+        self.surface_preset = surface_preset
+        self.T_floor_mean = float(preset.T_floor)
+
         seed_sequence = np.random.SeedSequence(seed)
         shared_seq, latitude_seq = seed_sequence.spawn(2)
 
         self._shared_sampler = AuditedShellSampler()
         self._shared_sampler.rng = np.random.default_rng(shared_seq)
+
+        # Override grain prior center so it's an explicit campaign choice
+        self._shared_sampler.D_GRAIN_LOG_CENTER = np.log10(grain_center_mm * 1e-3)
+        self.grain_center_mm = float(grain_center_mm)
+
         self.rng = np.random.default_rng(latitude_seq)
 
         self.ocean_pattern = ocean_pattern
@@ -77,9 +93,6 @@ class LatitudeParameterSampler:
         self.q_tidal_scale = float(q_tidal_scale)
         self._grain_latitude_mode = grain_latitude_mode
         self._grain_strain_exponent = float(grain_strain_exponent)
-        if T_floor_mean <= 0.0:
-            raise ValueError("T_floor_mean must be positive.")
-        self.T_floor_mean = float(T_floor_mean)
 
     @classmethod
     def shared_parameter_names(cls) -> Tuple[str, ...]:
@@ -101,14 +114,6 @@ class LatitudeParameterSampler:
         audited_params = self._shared_sampler.sample()
         D_H2O = audited_params['D_H2O']
         H_rad = audited_params['H_rad']
-
-        # 2D grain-size override: shift prior center from 0.6 mm to 1.5 mm
-        # to favour thicker conductive lids (Barr & McKinnon 2007 supports
-        # equilibrium grains up to 30-80 mm; 1.5 mm is still conservative).
-        d_grain_2d = 10 ** self.rng.normal(np.log10(1.5e-3), 0.35)
-        d_grain_2d = float(np.clip(d_grain_2d, 5e-5, 5e-3))
-        audited_params['d_grain'] = d_grain_2d
-
 
         # Reuse the audited 1D surface-temperature draw at the equator so the
         # 2D equatorial anchor matches the 1D prior exactly for each realization.
