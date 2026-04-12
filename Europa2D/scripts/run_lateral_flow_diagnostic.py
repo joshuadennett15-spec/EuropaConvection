@@ -112,6 +112,10 @@ def glen_A_from_temperature(
         Temperature-dependent Glen rate factor in Pa^-3 s^-1.
     """
     T_K = np.asarray(T_K, dtype=float)
+    # Floor at 100 K — coldest plausible basal temperature.
+    # Prevents exp(-Q / (R*0)) = exp(-inf) = 0 for fully conductive columns
+    # where the thermal solver may have left T_c = 0.
+    T_K = np.maximum(T_K, 100.0)
     return A_ref * np.exp(-Q / (R * T_K) + Q / (R * T_ref))
 
 
@@ -215,10 +219,11 @@ def solve_thin_film_diffusion(
     phi_rad = np.deg2rad(latitudes_deg)
     dphi = phi_rad[1] - phi_rad[0]                    # uniform grid assumed
 
-    # cos(phi) at node centres, with an epsilon floor to avoid division-by-zero
-    # at the pole (phi = 90 deg).
-    _COS_EPS: float = 1.0e-6
-    cos_phi = np.maximum(np.cos(phi_rad), _COS_EPS)  # shape (n_lat,)
+    # cos(phi) at node centres.
+    # We do NOT apply an epsilon floor here — the pole singularity is handled
+    # by excluding near-pole nodes from the CFL bound (see below), and the
+    # flux at the pole vanishes by symmetry so the update is well-behaved.
+    cos_phi = np.cos(phi_rad)                         # shape (n_lat,)
 
     # cos(phi) at face centres (between nodes i and i+1)
     cos_face = 0.5 * (cos_phi[:-1] + cos_phi[1:])    # shape (n_lat-1,)
@@ -231,10 +236,19 @@ def solve_thin_film_diffusion(
     tau_yr = tau_s / (3.15576e7)                     # s -> years
 
     # CFL-stable time step.  With the spherical geometry the effective
-    # diffusion rate is amplified by 1/cos(phi) at high latitudes, so we
-    # incorporate the geometry factor into the stability estimate.
-    # D_eff_max = max(D0 / cos_phi) gives a conservative upper bound.
-    D_eff_max = float(np.max(D0 / cos_phi))
+    # diffusion rate is amplified by 1/cos(phi) at high latitudes.
+    # We exclude nodes within ~3° of the pole (cos_phi < cos(87°) ≈ 0.052)
+    # from the CFL bound to avoid the singularity inflating the estimate by
+    # ~10^6 and driving dt to ~5e-5 s.  The pole node update is physically
+    # safe because cos_face → 0 there too, so flux → 0 and the divergence
+    # is finite (L'Hôpital limit), but the CFL criterion should not see it.
+    _COS_POLE_THRESHOLD: float = np.cos(np.deg2rad(87.0))   # ≈ 0.052
+    interior_mask = cos_phi >= _COS_POLE_THRESHOLD
+    if not np.any(interior_mask):
+        interior_mask = np.ones(len(cos_phi), dtype=bool)   # fallback: use all
+
+    D_eff_max = float(np.max((D0 / np.where(cos_phi >= _COS_POLE_THRESHOLD,
+                                             cos_phi, np.inf))))
     if D_eff_max <= 0.0:
         return H_km.copy(), tau_yr
 
@@ -244,6 +258,9 @@ def solve_thin_film_diffusion(
 
     H = H_m.copy()
     n_lat = len(H)
+
+    # Record initial contrast for the convergence criterion.
+    initial_contrast_m = float(np.max(H_m) - np.min(H_m))
 
     for _ in range(max_steps):
         D = glen_diffusivity(H, A=A)
@@ -262,23 +279,32 @@ def solve_thin_film_diffusion(
         dH[1:-1] = (flux[1:] - flux[:-1]) / (L * cos_phi[1:-1])   # interior
         # Neumann BCs: zero flux at both ends (equator and pole)
         dH[0] = flux[0] / (L * cos_phi[0])
-        dH[-1] = -flux[-1] / (L * cos_phi[-1])
+        # Pole: flux[-1] → 0 as cos_face → 0, so dH[-1] is well-behaved.
+        # Use cos_phi of the last *interior* face to avoid exact-zero division.
+        dH[-1] = -flux[-1] / (L * max(cos_phi[-1], _COS_POLE_THRESHOLD))
 
         H_new = H + dt_s * dH
 
         # Enforce H >= 0 (physically required)
         H_new = np.maximum(H_new, 0.0)
 
-        # Re-CFL if D grows (keep adaptive stability)
-        D_new_eff_max = float(np.max(glen_diffusivity(H_new, A=A) / cos_phi))
+        # Re-CFL — recompute dt fresh each step so it can grow when D decreases
+        # (avoids the monotone-ratchet problem where dt can only shrink).
+        D_new = glen_diffusivity(H_new, A=A)
+        D_new_eff_max = float(np.max((D_new / np.where(cos_phi >= _COS_POLE_THRESHOLD,
+                                                        cos_phi, np.inf))))
         if D_new_eff_max > 0.0:
-            dt_s = min(dt_s, 0.4 * L ** 2 / D_new_eff_max)
+            dt_s = 0.4 * L ** 2 / D_new_eff_max
 
-        change_km = float(np.max(np.abs(H_new - H))) * 1.0e-3
-        H = H_new
-
-        if change_km < tol_km:
+        # Convergence: remaining thickness contrast relative to initial.
+        # This is independent of dt size and physically meaningful —
+        # we stop when 99.9% of the original contrast has been erased.
+        remaining_contrast_m = float(np.max(H_new) - np.min(H_new))
+        if initial_contrast_m > 0.0 and remaining_contrast_m / initial_contrast_m < 1.0e-3:
+            H = H_new
             break
+
+        H = H_new
 
     return H * 1.0e-3, tau_yr   # m -> km
 
@@ -627,6 +653,9 @@ def main() -> None:
 
     else:  # --all
         results_dir = os.path.join(_PROJECT_DIR, "results")
+        if not os.path.isdir(results_dir):
+            print(f"Results directory not found: {results_dir}")
+            return
         npz_files = sorted(
             f for f in os.listdir(results_dir) if f.endswith(".npz")
         )
