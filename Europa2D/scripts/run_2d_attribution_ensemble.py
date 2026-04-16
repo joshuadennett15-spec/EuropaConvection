@@ -166,7 +166,6 @@ def _run_paired_sample(
             q_star=scenario.q_star if scenario.q_star > 0 else None,
             grain_latitude_mode=grain_latitude_mode,
             q_tidal_scale=q_tidal_scale,
-            T_floor_mean=T_floor,
         )
         shared_params, sampled_profile = sampler.sample()
         cases = build_paired_attribution_profiles(sampled_profile)
